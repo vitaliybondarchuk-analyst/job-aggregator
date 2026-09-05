@@ -13,4 +13,4 @@ EXCLUDE_TERMS = [
     "commission-only", "office only", "on-site only", "onsite only"
 ]
 
-SOURCES = ["Djinni", "DOU", "robota.ua", "Work.ua"]
+SOURCES = ["Djinni", "DOU", "robota.ua"]
