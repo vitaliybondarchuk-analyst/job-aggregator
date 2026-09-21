@@ -266,9 +266,23 @@ def collect_from_api(
             break
 
         for document in documents:
+            # The Robota search API may return a compact search
+            # document where the title is stored under different keys.
+            # Do not assume "name" is the only title field.
             raw_title = normalize_whitespace(
-                document.get("name") or ""
+                document.get("name")
+                or document.get("title")
+                or document.get("vacancyName")
+                or document.get("positionName")
+                or ""
             ).lower()
+
+            if stats is not None and stats.get("sample_documents", 0) < 5:
+                stats["sample_documents"] = stats.get("sample_documents", 0) + 1
+                stats.setdefault("sample_titles", []).append(raw_title)
+                stats.setdefault("sample_keys", []).append(
+                    sorted(document.keys())
+                )
 
             # Search API is broader than our final requirement.
             # Keep only vacancies whose TITLE contains Power BI.
