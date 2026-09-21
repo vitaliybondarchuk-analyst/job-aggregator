@@ -67,24 +67,6 @@ if search_error:
     st.code(search_error)
 
 
-source_stats = st.session_state.get("source_stats", [])
-
-if source_stats:
-    with st.expander("Collector diagnostics", expanded=True):
-        for item in source_stats:
-            st.markdown(
-                f"**{item['source']}** — collected: "
-                f"{item['collected']}"
-            )
-
-            if item["error"]:
-                st.error(item["error"])
-
-            details = item.get("details") or {}
-
-            if details:
-                st.json(details)
-
 
 if vacancies:
 
