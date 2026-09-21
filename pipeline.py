@@ -397,6 +397,72 @@ def run(terms=None, with_stats=False):
                 terms
             )
 
+            # Detailed Robota pipeline diagnostics: show exactly where
+            # collected vacancies disappear after the collector returns them.
+            if collector.source == "robota.ua":
+                details = getattr(collector, "last_stats", {})
+                details["pipeline_titles"] = [
+                    vacancy.title for vacancy in collected
+                ]
+
+                remote_items = [
+                    vacancy for vacancy in collected
+                    if vacancy.remote
+                ]
+                title_items = [
+                    vacancy for vacancy in remote_items
+                    if is_power_bi_vacancy(vacancy)
+                ]
+                hard_items = [
+                    vacancy for vacancy in title_items
+                    if not hard_excluded(vacancy)
+                ]
+                relevant_items = [
+                    vacancy for vacancy in hard_items
+                    if relevant(vacancy)
+                ]
+
+                details["pipeline_counts"] = {
+                    "collected": len(collected),
+                    "remote": len(remote_items),
+                    "power_bi_title": len(title_items),
+                    "after_hard_exclusions": len(hard_items),
+                    "relevant": len(relevant_items),
+                }
+                details["pipeline_exclusion_reasons"] = {}
+
+                for vacancy in collected:
+                    reasons = []
+                    if not vacancy.remote:
+                        reasons.append("not_remote")
+                    if not is_power_bi_vacancy(vacancy):
+                        reasons.append("no_power_bi_in_title")
+                    if has_excluded_level(vacancy):
+                        reasons.append("excluded_level")
+                    if has_excluded_sales_role(vacancy):
+                        reasons.append("excluded_sales")
+                    if has_excluded_smm_role(vacancy):
+                        reasons.append("excluded_smm")
+                    if has_excluded_design_role(vacancy):
+                        reasons.append("excluded_design")
+                    if has_excluded_content_production_role(vacancy):
+                        reasons.append("excluded_content_production")
+                    if has_excluded_marketing_role(vacancy):
+                        reasons.append("excluded_marketing")
+                    if has_non_remote_marker(vacancy):
+                        reasons.append("non_remote_marker")
+
+                    text = vacancy_text(vacancy)
+                    if any(
+                        normalize(term) in text
+                        for term in EXCLUDE_TERMS
+                    ):
+                        reasons.append("config_exclude_term")
+
+                    details["pipeline_exclusion_reasons"][
+                        vacancy.title
+                    ] = reasons or ["passes_pipeline_filters"]
+
             vacancies.extend(
                 collected
             )
