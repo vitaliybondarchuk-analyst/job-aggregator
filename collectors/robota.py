@@ -356,14 +356,11 @@ def fetch_jina(url: str, stats: dict | None = None) -> str:
 
 
 def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
-    """Extract Power BI vacancy links from Jina's Markdown output."""
+    """Extract Robota vacancy links and their card titles from Jina Markdown."""
     import re
 
     result = []
     seen = set()
-
-    # Jina renders Robota cards as Markdown links. Avoid a complex URL regex:
-    # extract plain URLs first, then inspect the nearby Markdown text.
     url_pattern = re.compile(r"https?://[^\\s)]+", re.IGNORECASE)
 
     for match in url_pattern.finditer(content):
@@ -380,90 +377,91 @@ def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
         if line_end < 0:
             line_end = len(content)
         line = content[line_start:line_end]
+        relative_url_pos = match.start() - line_start
 
-        # Typical form: [title](http://robota.ua/.../vacancy123)
         title = ""
-        open_bracket = line.rfind("[", 0, match.start() - line_start)
+        open_bracket = line.rfind("[", 0, relative_url_pos)
         close_marker = line.find("](", open_bracket + 1)
         if open_bracket >= 0 and close_marker >= 0:
             title = clean_title(line[open_bracket + 1:close_marker])
 
-        # If the URL/title are separated, inspect preceding lines.
         if not title:
             context = content[max(0, match.start() - 1000):match.start()]
             for candidate in reversed(context.splitlines()):
                 candidate = clean_title(candidate)
-                if is_power_bi_title(candidate):
+                if candidate:
                     title = candidate
                     break
 
-        if title and is_power_bi_title(title):
+        if title:
             seen.add(url)
             result.append((title, url))
 
     return result
 
 def collect_from_jina(term: str, stats: dict | None = None) -> list[Vacancy]:
+    import re
+
     query = "-".join(term.strip().lower().split())
-    search_url = (
-        "https://robota.ua/ua/zapros/"
-        f"{query}/ukraine"
-    )
+    result = []
+    seen_urls = set()
+    all_candidates = []
+    max_pages = 5
 
-    content = fetch_jina(search_url, stats)
-
-    if stats is not None:
-        stats["jina_search_chars"] = len(content)
-        stats["jina_power_bi_count"] = content.lower().count("power bi")
-        marker = content.lower().find("power bi")
-        stats["jina_power_bi_sample"] = (
-            content[max(0, marker - 500): marker + 1500]
-            if marker >= 0 else ""
+    for page_number in range(1, max_pages + 1):
+        search_url = (
+            "https://robota.ua/ua/zapros/"
+            f"{query}/ukraine"
+            f"?page={page_number}"
         )
 
-    if not content:
-        return []
+        content = fetch_jina(search_url, stats)
+        if not content:
+            continue
 
-    candidates = parse_jina_vacancy_links(content)
+        if stats is not None:
+            stats["jina_search_chars"] = stats.get("jina_search_chars", 0) + len(content)
+            stats["jina_power_bi_count"] = stats.get("jina_power_bi_count", 0) + content.lower().count("power bi")
+            stats["jina_pages"] = stats.get("jina_pages", 0) + 1
+            if page_number == 1:
+                marker = content.lower().find("power bi")
+                stats["jina_power_bi_sample"] = (
+                    content[max(0, marker - 500):marker + 1500]
+                    if marker >= 0 else ""
+                )
+
+        for title, url in parse_jina_vacancy_links(content):
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            all_candidates.append((title, url))
+
+    power_bi_candidates = [
+        item for item in all_candidates
+        if is_power_bi_title(item[0])
+    ]
 
     if stats is not None:
-        stats["jina_candidates"] = len(candidates)
+        stats["jina_urls"] = len(all_candidates)
+        stats["jina_candidates"] = len(power_bi_candidates)
+        stats["jina_sample_titles"] = [title for title, _ in all_candidates[:20]]
 
-    result = []
-
-    for title, url in candidates[:100]:
+    for title, url in power_bi_candidates[:100]:
         detail = fetch_jina(url, stats)
-
         if not detail:
             continue
 
         detail_lower = detail.lower()
-
-        # Keep remote-only vacancies. We deliberately reject hybrid/on-site
-        # markers when they are present in the vacancy detail.
-        if not any(
-            marker in detail_lower
-            for marker in REMOTE_LABELS
-        ):
+        if not any(marker in detail_lower for marker in REMOTE_LABELS):
             continue
-
-        if any(
-            marker in detail_lower
-            for marker in (
-                "гібридна",
-                "hybrid",
-                "on-site",
-                "onsite",
-                "в офісі",
-                "в офисе",
-            )
-        ):
+        if any(marker in detail_lower for marker in (
+            "гібридна", "hybrid", "on-site", "onsite", "в офісі", "в офисе",
+        )):
             continue
 
         company = ""
-        import re
         company_match = re.search(
-            r"(?:компанія|company)\s*[:\-]\s*([^\n]+)",
+            r"(?:компанія|company)\\s*[:\\-]\\s*([^\\n]+)",
             detail,
             re.IGNORECASE,
         )
@@ -486,7 +484,6 @@ def collect_from_jina(term: str, stats: dict | None = None) -> list[Vacancy]:
         stats["jina_accepted"] = len(result)
 
     return result
-
 
 def extract_card_text(anchor) -> str:
     try:
