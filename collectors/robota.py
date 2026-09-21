@@ -412,7 +412,7 @@ def extract_jina_detail_title(content: str) -> str:
 def parse_jina_vacancy_links(
     content: str,
 ) -> list[tuple[str, str]]:
-    """Extract Robota vacancy links and safe card-title candidates."""
+    """Extract Robota vacancy links, clean titles, and raw card text."""
     import re
 
     result = []
@@ -508,11 +508,11 @@ def collect_from_jina(
                         if marker >= 0 else ""
                     )
 
-            for title, url in parse_jina_vacancy_links(content):
+            for title, url, card_text in parse_jina_vacancy_links(content):
                 if url in seen_urls:
                     continue
                 seen_urls.add(url)
-                all_candidates.append((title, url))
+                all_candidates.append((title, url, card_text))
 
     power_bi_candidates = [
         item for item in all_candidates
@@ -526,7 +526,7 @@ def collect_from_jina(
             title for title, _ in all_candidates[:20]
         ]
 
-    for card_title, url in power_bi_candidates[:100]:
+    for card_title, url, card_text in power_bi_candidates[:100]:
         detail = fetch_jina(url, stats)
         if not detail:
             continue
@@ -543,7 +543,7 @@ def collect_from_jina(
             continue
 
         detail_lower = detail.lower()
-        card_lower = card_title.lower()
+        card_lower = card_text.lower()
 
         # Jina sometimes returns a vacancy detail page without the remote-work
         # metadata even though the search card explicitly says "(віддалено)".
@@ -574,6 +574,7 @@ def collect_from_jina(
         if stats is not None:
             stats.setdefault("jina_candidate_checks", []).append({
                 "card_title": card_title,
+                "card_remote_text": card_text[:500],
                 "detail_title": detail_title,
                 "final_title": title,
                 "remote_markers": remote_markers_found,
