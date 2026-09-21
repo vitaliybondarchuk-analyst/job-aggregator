@@ -18,7 +18,7 @@ def extract_dou_company(page) -> str:
             text = clean_text(link.inner_text() or "")
             if (
                 "/companies/" in href
-                and "/vacancies/" in href
+                and "/vacancies/" not in href
                 and text
                 and text.lower() not in {"компанії", "companies"}
             ):
