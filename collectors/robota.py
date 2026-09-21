@@ -444,13 +444,23 @@ def collect_from_jina(
     result = []
     seen_urls = set()
     all_candidates = []
-    max_pages = 5
+    # The generic Robota search is too broad: it can return hundreds of
+    # vacancies where Power BI appears only in the description. Use several
+    # title-oriented query variants, while keeping the final title gate strict.
+    search_queries = [
+        query,
+        "power-bi-developer",
+        "power-bi-analyst",
+        "power-bi-engineer",
+        "power-bi-consultant",
+    ]
+    search_queries = list(dict.fromkeys(search_queries))
+    max_pages = 1
 
-    for page_number in range(1, max_pages + 1):
+    for search_query in search_queries:
         search_url = (
             "https://robota.ua/ua/zapros/"
-            f"{query}/ukraine"
-            f"?page={page_number}"
+            f"{search_query}/ukraine"
         )
 
         content = fetch_jina(search_url, stats)
@@ -466,8 +476,10 @@ def collect_from_jina(
                 + content.lower().count("power bi")
             )
             stats["jina_pages"] = stats.get("jina_pages", 0) + 1
+            stats["jina_queries"] = stats.get("jina_queries", 0) + 1
+            stats.setdefault("jina_query_names", []).append(search_query)
 
-            if page_number == 1:
+            if search_query == search_queries[0]:
                 marker = content.lower().find("power bi")
                 stats["jina_power_bi_sample"] = (
                     content[max(0, marker - 500):marker + 1500]
