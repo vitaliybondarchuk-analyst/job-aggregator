@@ -47,9 +47,13 @@ if run_search:
 
         try:
 
-            vacancies = run(CORE_TERMS)
+            vacancies, source_stats = run(
+                CORE_TERMS,
+                with_stats=True,
+            )
 
             st.session_state["vacancies"] = vacancies
+            st.session_state["source_stats"] = source_stats
             st.session_state["search_error"] = ""
 
         except Exception as exc:
@@ -68,6 +72,25 @@ if search_error:
 
     st.error("Search failed")
     st.code(search_error)
+
+
+source_stats = st.session_state.get("source_stats", [])
+
+if source_stats:
+    with st.expander("Collector diagnostics", expanded=True):
+        for item in source_stats:
+            st.markdown(
+                f"**{item['source']}** — collected: "
+                f"{item['collected']}"
+            )
+
+            if item["error"]:
+                st.error(item["error"])
+
+            details = item.get("details") or {}
+
+            if details:
+                st.json(details)
 
 
 if vacancies:
