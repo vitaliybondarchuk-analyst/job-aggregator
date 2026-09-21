@@ -368,7 +368,7 @@ def build_collectors():
     return collectors
 
 
-def run(terms=None):
+def run(terms=None, with_stats=False):
     """
     Full Power BI vacancy aggregation pipeline.
 
@@ -387,6 +387,7 @@ def run(terms=None):
     terms = ["power bi"]
 
     vacancies = []
+    source_stats = []
 
     for collector in build_collectors():
 
@@ -400,8 +401,33 @@ def run(terms=None):
                 collected
             )
 
-        except Exception:
+            source_stats.append(
+                {
+                    "source": collector.source,
+                    "collected": len(collected),
+                    "error": "",
+                    "details": getattr(
+                        collector,
+                        "last_stats",
+                        {},
+                    ),
+                }
+            )
+
+        except Exception as exc:
             # One broken source must not kill the pipeline.
+            source_stats.append(
+                {
+                    "source": collector.source,
+                    "collected": 0,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "details": getattr(
+                        collector,
+                        "last_stats",
+                        {},
+                    ),
+                }
+            )
             continue
 
     vacancies = [
@@ -459,5 +485,8 @@ def run(terms=None):
             vacancy.title.lower(),
         )
     )
+
+    if with_stats:
+        return vacancies, source_stats
 
     return vacancies
