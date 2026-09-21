@@ -221,7 +221,7 @@ if vacancies:
     </div>
     """
 
-    st.markdown(table_html, unsafe_allow_html=True)
+    st.html(table_html)
 
 elif not search_error:
 
