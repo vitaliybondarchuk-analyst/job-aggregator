@@ -1,4 +1,5 @@
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 from collectors.base import (
     BaseCollector,
@@ -318,6 +319,150 @@ def collect_from_api(
     return result
 
 
+JINA_READER_BASE_URL = "https://r.jina.ai/http://"
+JINA_TIMEOUT = 30000
+
+
+def fetch_jina(url: str, stats: dict | None = None) -> str:
+    reader_url = JINA_READER_BASE_URL + url.removeprefix("https://")
+    request = Request(
+        reader_url,
+        headers={
+            "Accept": "text/plain",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+            ),
+        },
+    )
+
+    if stats is not None:
+        stats["jina_requests"] = stats.get("jina_requests", 0) + 1
+
+    try:
+        with urlopen(request, timeout=JINA_TIMEOUT) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            if stats is not None:
+                stats.setdefault("jina_statuses", []).append(
+                    response.status
+                )
+            return body
+    except Exception as exc:
+        if stats is not None:
+            stats.setdefault("jina_errors", []).append(
+                f"{type(exc).__name__}: {exc}"
+            )
+        return ""
+
+
+def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
+    import re
+
+    result = []
+    seen = set()
+
+    pattern = re.compile(
+        r"\[([^\]]*Power\s*BI[^\]]*)\]"
+        r"\((https?://(?:www\.)?robota\.ua/[^)]+/vacancy[^)]*)\)",
+        re.IGNORECASE,
+    )
+
+    for match in pattern.finditer(content):
+        title = clean_title(match.group(1))
+        url = match.group(2).split("#", 1)[0]
+
+        if not title or not is_power_bi_title(title):
+            continue
+
+        if url in seen:
+            continue
+
+        seen.add(url)
+        result.append((title, url))
+
+    return result
+
+
+def collect_from_jina(term: str, stats: dict | None = None) -> list[Vacancy]:
+    query = "-".join(term.strip().lower().split())
+    search_url = (
+        "https://robota.ua/ua/zapros/"
+        f"{query}/ukraine"
+    )
+
+    content = fetch_jina(search_url, stats)
+
+    if stats is not None:
+        stats["jina_search_chars"] = len(content)
+        stats["jina_power_bi_count"] = content.lower().count("power bi")
+
+    if not content:
+        return []
+
+    candidates = parse_jina_vacancy_links(content)
+
+    if stats is not None:
+        stats["jina_candidates"] = len(candidates)
+
+    result = []
+
+    for title, url in candidates[:100]:
+        detail = fetch_jina(url, stats)
+
+        if not detail:
+            continue
+
+        detail_lower = detail.lower()
+
+        # Keep remote-only vacancies. We deliberately reject hybrid/on-site
+        # markers when they are present in the vacancy detail.
+        if not any(
+            marker in detail_lower
+            for marker in REMOTE_LABELS
+        ):
+            continue
+
+        if any(
+            marker in detail_lower
+            for marker in (
+                "гібридна",
+                "hybrid",
+                "on-site",
+                "onsite",
+                "в офісі",
+                "в офисе",
+            )
+        ):
+            continue
+
+        company = ""
+        import re
+        company_match = re.search(
+            r"(?:компанія|company)\s*[:\-]\s*([^\n]+)",
+            detail,
+            re.IGNORECASE,
+        )
+        if company_match:
+            company = clean_text(company_match.group(1))
+
+        result.append(
+            Vacancy(
+                title=title,
+                company=company,
+                url=url,
+                source="robota.ua",
+                description=detail[:12000],
+                remote=True,
+                category="Power BI",
+            )
+        )
+
+    if stats is not None:
+        stats["jina_accepted"] = len(result)
+
+    return result
+
+
 def extract_card_text(anchor) -> str:
     try:
         return normalize_whitespace(
@@ -549,17 +694,14 @@ class RobotaCollector(BaseCollector):
                 if api_result:
                     return api_result
 
-            # Fallback for temporary API failures.
-            page = browser.browser.new_page()
-            detail = browser.browser.new_page()
-
+            # Robota's public HTML is protected by Cloudflare.
+            # Use Jina Reader as the public-page fallback instead of
+            # sending Playwright directly to robota.ua.
             result = []
 
             for term in terms:
                 result.extend(
-                    collect_html_fallback(
-                        page,
-                        detail,
+                    collect_from_jina(
                         term,
                         stats,
                     )
