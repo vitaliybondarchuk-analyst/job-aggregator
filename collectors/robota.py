@@ -9,8 +9,8 @@ from collectors.browser import Browser
 from models import Vacancy
 
 
-API_SEARCH_URL = "https://api.robota.ua/vacancy/search"
-API_DETAIL_URL = "https://api.robota.ua/vacancy"
+API_SEARCH_HOSTS = ("api.robota.ua", "ua-api.robota.ua", "api.rabota.ua")
+API_DETAIL_PATH = "/vacancy"
 API_PAGE_SIZE = 50
 API_MAX_PAGES = 5
 REMOTE_SCHEDULE_ID = 3
@@ -96,10 +96,14 @@ def build_vacancy_from_api(page, document: dict) -> Vacancy | None:
     if not vacancy_id:
         return None
 
-    detail = fetch_api_json(
-        page,
-        f"{API_DETAIL_URL}?id={vacancy_id}",
-    )
+    detail = None
+    for host in API_SEARCH_HOSTS:
+        detail = fetch_api_json(
+            page,
+            f"https://{host}{API_DETAIL_PATH}?id={vacancy_id}",
+        )
+        if isinstance(detail, dict):
+            break
 
     if not isinstance(detail, dict):
         return None
@@ -193,19 +197,22 @@ def collect_from_api(page, term: str) -> list[Vacancy]:
     result = []
     seen = set()
 
-    for page_number in range(API_MAX_PAGES):
+    for page_number in range(1, API_MAX_PAGES + 1):
         query = quote(term)
 
-        url = (
-            f"{API_SEARCH_URL}"
-            f"?keyWords={query}"
-            f"&scheduleId={REMOTE_SCHEDULE_ID}"
-            f"&count={API_PAGE_SIZE}"
-            f"&page={page_number}"
-            f"&sortBy=Date"
-        )
+        payload = None
 
-        payload = fetch_api_json(page, url)
+        for host in API_SEARCH_HOSTS:
+            url = (
+                f"https://{host}/vacancy/search"
+                f"?keyWords={query}"
+                f"&scheduleId={REMOTE_SCHEDULE_ID}"
+                f"&count={API_PAGE_SIZE}"
+                f"&page={page_number}"
+            )
+            payload = fetch_api_json(page, url)
+            if isinstance(payload, dict):
+                break
 
         if not isinstance(payload, dict):
             break
