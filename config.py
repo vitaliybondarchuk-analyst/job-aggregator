@@ -1,12 +1,10 @@
+# Search is intentionally restricted to Power BI vacancies only.
 CORE_TERMS = [
-    "power bi", "bi analyst", "business intelligence", "data analyst",
-    "analytics", "reporting analyst", "report developer", "power bi developer",
-    "data visualization", "sql analyst", "business analyst"
+    "power bi",
 ]
-SIDE_INCOME_TERMS = [
-    "content writer", "article writer", "technical writer", "seo writer",
-    "content writer", "copywriter", "editor", "proofreader", "research writer"
-]
+
+# Kept for backward compatibility with existing imports.
+SIDE_INCOME_TERMS = []
 
 EXCLUDE_TERMS = [
     "junior", "intern", "internship", "trainee", "unpaid", "volunteer",
