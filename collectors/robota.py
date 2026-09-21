@@ -373,6 +373,18 @@ def extract_jina_card_title(line: str) -> str:
     text = re.sub(r"^Гаряча\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"^Hot\s*", "", text, flags=re.IGNORECASE)
 
+    # The Robota search card concatenates title, company, city and remote
+    # metadata into one line. Strip the metadata suffix so the Vacancy.title
+    # remains the actual job title.
+    suffix_patterns = (
+        r"\s+\([^)]*\)\s*$",
+        r"\s+(?:Київ|Львів|Одеса|Дніпро|Харків|Вінниця|Житомир|Івано-Франківськ|Тернопіль|Чернівці|Полтава|Запоріжжя|Миколаїв|Черкаси|Рівне|Хмельницький|Ужгород|Луцьк|Суми|Чернігів)\s*(?:\([^)]*\))?\s*$",
+    )
+    for pattern in suffix_patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # When the card has no separable location suffix, keep the original text;
+    # the final detail-page title (when available) still takes precedence.
     return clean_title(text)
 
 
