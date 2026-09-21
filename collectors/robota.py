@@ -814,8 +814,6 @@ class RobotaCollector(
                                 )
                             )
 
-                            card_has_non_remote = is_explicit_non_remote(card_text)
-
                             candidates.append(
                                 Vacancy(
                                     title=title,
@@ -824,7 +822,11 @@ class RobotaCollector(
                                     source=self.source,
                                     description="",
                                     employment_type=employment,
-                                    remote=not card_has_non_remote,
+                                    # Card text often contains office/benefit
+                                    # wording even for remote vacancies.
+                                    # Remote status is validated on the detail
+                                    # page, so do not reject candidates here.
+                                    remote=True,
                                     salary="",
                                     location="",
                                     posted="",
