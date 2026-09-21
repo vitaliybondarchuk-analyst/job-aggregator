@@ -356,18 +356,13 @@ def fetch_jina(url: str, stats: dict | None = None) -> str:
 
 
 def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
-    """Extract Power BI vacancy links from Jina's Markdown output.
-
-    Jina may render a Robota result as an inline Markdown link, a link whose
-    URL is separated from the title, or a line where the Power BI title and
-    vacancy URL are adjacent but not part of the same Markdown token.
-    """
+    """Extract Power BI vacancy links from Jina's Markdown output."""
     import re
 
     result = []
     seen = set()
 
-    # 1. Standard inline Markdown: [title](vacancy-url)
+    # Jina normally renders Robota cards as [title](vacancy-url).
     inline_pattern = re.compile(
         r"\\[([^\\]]+)\\]\\((https?://(?:www\\.)?robota\\.ua/[^)\\s]+/vacancy[^)\\s]*)\\)",
         re.IGNORECASE,
@@ -380,11 +375,9 @@ def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
             seen.add(url)
             result.append((title, url))
 
-    # 2. More permissive fallback: find every Robota vacancy URL and inspect
-    # nearby text for the Power BI title. This covers Jina link formatting
-    # where the title and URL are separated into different Markdown lines.
+    # Fallback for formats where title and URL are separated.
     url_pattern = re.compile(
-        r"https?://(?:www\\.)?robota\\.ua/[^\\s<>)\\\"]+/vacancy[^\\s<>)\\\"]*",
+        r'https?://(?:www\\.)?robota\\.ua/[^\\s<>)"]+/vacancy[^\\s<>)"]*',
         re.IGNORECASE,
     )
 
@@ -393,14 +386,12 @@ def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
         if url in seen:
             continue
 
-        start = max(0, match.start() - 800)
-        context = content[start:match.start()]
+        context = content[max(0, match.start() - 800):match.start()]
         lines = [clean_title(line) for line in context.splitlines() if clean_title(line)]
 
         title = ""
         for line in reversed(lines):
             if is_power_bi_title(line):
-                # Remove common Markdown decoration and link markers.
                 title = clean_title(
                     re.sub(r"^[-*#>\\s]+", "", line)
                     .replace("**", "")
