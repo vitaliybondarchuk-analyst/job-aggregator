@@ -696,9 +696,9 @@ class RobotaCollector(
 
             for term in terms:
 
-                query = quote_plus(
-                    f"remote {term}"
-                )
+                # Robota search should query Power BI directly.
+                # Remote status is validated from each vacancy card/detail page.
+                query = quote_plus(term)
 
                 url = (
                     "https://robota.ua/zapros/"
