@@ -531,9 +531,19 @@ def collect_from_jina(
             continue
 
         detail_lower = detail.lower()
-        remote_markers_found = [
+        card_lower = card_title.lower()
+
+        # Jina sometimes returns a vacancy detail page without the remote-work
+        # metadata even though the search card explicitly says "(віддалено)".
+        # Use the detail page as the primary source, but fall back to the card
+        # for remote status when the detail page has no remote marker.
+        remote_markers_detail = [
             marker for marker in REMOTE_LABELS
             if marker in detail_lower
+        ]
+        remote_markers_card = [
+            marker for marker in REMOTE_LABELS
+            if marker in card_lower
         ]
         hybrid_markers_found = [
             marker for marker in (
@@ -542,12 +552,20 @@ def collect_from_jina(
             if marker in detail_lower
         ]
 
+        if remote_markers_detail:
+            remote_markers_found = remote_markers_detail
+            remote_source = "detail"
+        else:
+            remote_markers_found = remote_markers_card
+            remote_source = "card"
+
         if stats is not None:
             stats.setdefault("jina_candidate_checks", []).append({
                 "card_title": card_title,
                 "detail_title": detail_title,
                 "final_title": title,
                 "remote_markers": remote_markers_found,
+                "remote_source": remote_source if remote_markers_found else "",
                 "hybrid_markers": hybrid_markers_found,
             })
 
