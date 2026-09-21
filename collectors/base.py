@@ -329,6 +329,38 @@ def extract_location(
     return clean_text(location)
 
 
+def extract_company_from_page(page) -> str:
+    """
+    Fallback company extraction for pages without JobPosting JSON-LD.
+    Prefer links to the site's company profile.
+    """
+    selectors = (
+        'a[href*="/companies/"]',
+        'a[href*="/company/"]',
+    )
+
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = locator.count()
+
+            for index in range(min(count, 20)):
+                try:
+                    value = clean_text(
+                        locator.nth(index).inner_text(timeout=1500)
+                    )
+
+                    if value and len(value) <= 150:
+                        return value
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    return ""
+
 def extract_salary_from_text(
     text: str,
 ) -> str:
@@ -393,6 +425,7 @@ def enrich_vacancy(
         return vacancy
 
     job = extract_json_ld(page)
+    company_from_page = extract_company_from_page(page)
 
     try:
         body = clean_text(
@@ -433,6 +466,11 @@ def enrich_vacancy(
             )
         else:
             company = company_data
+
+        company = first_nonempty(
+            company,
+            company_from_page,
+        )
 
         description = first_nonempty(
             job.get("description"),
@@ -485,7 +523,10 @@ def enrich_vacancy(
     else:
         title = vacancy.title
 
-        company = vacancy.company
+        company = first_nonempty(
+            vacancy.company,
+            company_from_page,
+        )
 
         description = first_nonempty(
             vacancy.description,
