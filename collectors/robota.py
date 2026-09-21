@@ -377,13 +377,58 @@ def collect_html_fallback(
     )
 
     try:
-        page.goto(
+        response = page.goto(
             url,
             wait_until="domcontentloaded",
             timeout=30000,
         )
-        page.wait_for_timeout(2000)
-    except Exception:
+        page.wait_for_timeout(3000)
+
+        if stats is not None:
+            stats["html_status"] = (
+                response.status if response is not None else None
+            )
+            stats["html_final_url"] = page.url
+            stats["html_title"] = page.title()
+
+            try:
+                stats["html_anchor_count"] = page.locator("a").count()
+                stats["html_power_bi_text_count"] = page.get_by_text(
+                    "Power BI",
+                    exact=False,
+                ).count()
+            except Exception:
+                pass
+
+            try:
+                body_text = page.locator("body").inner_text(timeout=5000)
+                stats["html_body_sample"] = normalize_whitespace(
+                    body_text
+                )[:3000]
+            except Exception as exc:
+                stats["html_body_sample_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+            try:
+                html = page.content()
+                marker = html.lower().find("power bi")
+                if marker >= 0:
+                    stats["html_power_bi_html_sample"] = html[
+                        max(0, marker - 1000): marker + 3000
+                    ]
+                else:
+                    stats["html_power_bi_html_sample"] = ""
+            except Exception as exc:
+                stats["html_html_sample_error"] = (
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+    except Exception as exc:
+        if stats is not None:
+            stats["html_error"] = (
+                f"{type(exc).__name__}: {exc}"
+            )
         return []
 
     candidates = []
