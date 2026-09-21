@@ -757,15 +757,10 @@ class RobotaCollector(
                             if not card_text:
                                 continue
 
-                            # ------------------------------------------------
-                            # Remote-only source filter.
-                            # ------------------------------------------------
-
-                            if not explicit_remote(
-                                card_text
-                            ):
-                                continue
-
+                            # Do not require the remote marker at card level.
+                            # Robota's card markup can place the remote label outside
+                            # the selected anchor. Remote status is validated after
+                            # opening the detail page.
                             # ------------------------------------------------
                             # Initial title.
                             #
