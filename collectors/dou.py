@@ -1,8 +1,111 @@
 from urllib.parse import quote_plus
 
-from collectors.base import BaseCollector
+from collectors.base import (
+    BaseCollector,
+    clean_text,
+    extract_salary_from_text,
+    infer_employment,
+)
 from collectors.browser import Browser
 from models import Vacancy
+
+
+def extract_dou_company(page) -> str:
+    try:
+        links = page.locator('a[href*="/companies/"]').all()
+        for link in links[:30]:
+            href = link.get_attribute("href") or ""
+            text = clean_text(link.inner_text() or "")
+            if (
+                "/companies/" in href
+                and "/vacancies/" in href
+                and text
+                and text.lower() not in {"компанії", "companies"}
+            ):
+                return text[:200]
+    except Exception:
+        pass
+    return ""
+
+
+def extract_dou_description(page) -> str:
+    selectors = (
+        ".vacancy-section",
+        ".b-typo.vacancy-section",
+        '[class*="vacancy-section"]',
+        '[class*="vacancy-section__"]',
+    )
+
+    candidates = []
+
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = locator.count()
+
+            for index in range(min(count, 10)):
+                try:
+                    text = clean_text(
+                        locator.nth(index).inner_text(timeout=2000)
+                    )
+                    if len(text) >= 150:
+                        candidates.append(text)
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    if candidates:
+        return max(candidates, key=len)[:12000]
+
+    return ""
+
+
+def enrich_dou_vacancy(page, vacancy: Vacancy) -> Vacancy:
+    try:
+        page.goto(
+            vacancy.url,
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+        page.wait_for_timeout(700)
+    except Exception:
+        return vacancy
+
+    company = extract_dou_company(page)
+    description = extract_dou_description(page)
+
+    try:
+        body = clean_text(
+            page.locator("body").inner_text(timeout=4000)
+        )
+    except Exception:
+        body = ""
+
+    # DOU detail pages expose the company and vacancy body
+    # in ordinary HTML rather than reliably usable JobPosting JSON-LD.
+    if company:
+        vacancy.company = company
+
+    if description:
+        vacancy.description = description
+
+    if not vacancy.employment_type:
+        vacancy.employment_type = infer_employment(
+            f"{description} {body}"
+        )
+
+    if not vacancy.salary:
+        vacancy.salary = extract_salary_from_text(
+            f"{description} {body}"
+        )
+
+    remote_text = f"{vacancy.title} {description} {body}".lower()
+
+    if "віддалено" in remote_text or "remote" in remote_text:
+        vacancy.remote = True
+
+    return vacancy
 
 
 class DOUCollector(BaseCollector):
@@ -62,14 +165,26 @@ class DOUCollector(BaseCollector):
                 except Exception:
                     continue
 
-            # DOU search results provide the title and URL, but
-            # important metadata such as company, salary, employment
-            # and the full description lives on the detail page.
-            enriched = self.enrich(
-                detail,
-                candidates,
-                limit=100,
-            )
+            enriched = []
+
+            seen = set()
+
+            for vacancy in candidates:
+                key = vacancy.url.rstrip("/")
+                if not key or key in seen:
+                    continue
+
+                seen.add(key)
+
+                enriched.append(
+                    enrich_dou_vacancy(
+                        detail,
+                        vacancy,
+                    )
+                )
+
+                if len(enriched) >= 100:
+                    break
 
             return [
                 vacancy
