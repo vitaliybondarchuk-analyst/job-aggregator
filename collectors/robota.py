@@ -425,7 +425,12 @@ def collect_from_jina(term: str, stats: dict | None = None) -> list[Vacancy]:
 
     if stats is not None:
         stats["jina_search_chars"] = len(content)
-        stats["jina_power_bi_count"] = content.lower().count("power bi")\n        marker = content.lower().find("power bi")\n        stats["jina_power_bi_sample"] = (\n            content[max(0, marker - 500): marker + 1500]\n            if marker >= 0 else ""\n        )
+        stats["jina_power_bi_count"] = content.lower().count("power bi")
+        marker = content.lower().find("power bi")
+        stats["jina_power_bi_sample"] = (
+            content[max(0, marker - 500): marker + 1500]
+            if marker >= 0 else ""
+        )
 
     if not content:
         return []
