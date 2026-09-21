@@ -405,32 +405,28 @@ def parse_jina_vacancy_links(
 
     result = []
     seen = set()
-    url_pattern = re.compile(r"https?://[^\s)]+", re.IGNORECASE)
 
-    for match in url_pattern.finditer(content):
-        url = match.group(0).rstrip(".,;:")
-        if "robota.ua" not in url.lower() or "/vacancy" not in url.lower():
-            continue
+    # A Robota search card is serialized by Jina as one Markdown link.
+    # The card itself can contain another nested Markdown image link:
+    #
+    # [Гаряча ## TITLE COMPANY CITY ![logo](IMAGE_URL) DESCRIPTION](VACANCY_URL)
+    #
+    # Therefore do NOT scan arbitrary URLs and infer the nearest '['.
+    # Match only the outer link whose destination is a Robota vacancy URL.
+    vacancy_link_pattern = re.compile(
+        r"\[([^\n]*?)\]\((https?://robota\.ua/[^\s)]+/vacancy[^\s)]*)\)",
+        re.IGNORECASE,
+    )
 
+    for match in vacancy_link_pattern.finditer(content):
+        card_text = match.group(1)
+        url = match.group(2).rstrip(".,;:")
         url = url.split("#", 1)[0]
+
         if url in seen:
             continue
 
-        line_start = content.rfind("\n", 0, match.start()) + 1
-        line_end = content.find("\n", match.end())
-        if line_end < 0:
-            line_end = len(content)
-
-        line = content[line_start:line_end]
-        relative_url_pos = match.start() - line_start
-
-        title = ""
-        open_bracket = line.rfind("[", 0, relative_url_pos)
-        close_marker = line.find("](", open_bracket + 1)
-
-        if open_bracket >= 0 and close_marker >= 0:
-            card_text = line[open_bracket + 1:close_marker]
-            title = extract_jina_card_title(card_text)
+        title = extract_jina_card_title(card_text)
 
         if title:
             seen.add(url)
@@ -438,11 +434,12 @@ def parse_jina_vacancy_links(
 
     return result
 
-
 def collect_from_jina(
     term: str,
     stats: dict | None = None,
 ) -> list[Vacancy]:
+    import re
+
     query = "-".join(term.strip().lower().split())
     result = []
     seen_urls = set()
