@@ -1,4 +1,3 @@
-from urllib.parse import quote_plus
 
 from collectors.base import (
     BaseCollector,
@@ -697,10 +696,15 @@ class RobotaCollector(
 
                 # Robota search should query Power BI directly.
                 # Remote status is validated from each vacancy card/detail page.
-                query = quote_plus(term)
+                # Robota uses hyphen-separated slugs in the search path.
+                # quote_plus() would produce "power+bi", which is not the
+                # same route as the live "power-bi" search page.
+                query = "-".join(
+                    term.strip().lower().split()
+                )
 
                 url = (
-                    "https://robota.ua/zapros/"
+                    "https://robota.ua/ua/zapros/"
                     f"{query}/ukraine"
                 )
 
