@@ -62,7 +62,10 @@ def clean_title(title: str) -> str:
     return title[:300]
 
 
-def fetch_api_json(page, url: str):
+def fetch_api_json(page, url: str, stats: dict | None = None):
+    if stats is not None:
+        stats["requests"] = stats.get("requests", 0) + 1
+
     try:
         response = page.request.get(
             url,
@@ -79,19 +82,42 @@ def fetch_api_json(page, url: str):
             },
             timeout=30000,
         )
-    except Exception:
+    except Exception as exc:
+        if stats is not None:
+            stats.setdefault("errors", []).append(
+                f"request: {type(exc).__name__}: {exc}"
+            )
         return None
 
+    if stats is not None:
+        stats.setdefault("statuses", []).append(response.status)
+
     if not response.ok:
+        if stats is not None:
+            try:
+                body = response.text()[:200].replace("\n", " ")
+            except Exception:
+                body = ""
+            stats.setdefault("errors", []).append(
+                f"HTTP {response.status}: {body}"
+            )
         return None
 
     try:
         return response.json()
-    except Exception:
+    except Exception as exc:
+        if stats is not None:
+            stats.setdefault("errors", []).append(
+                f"json: {type(exc).__name__}: {exc}"
+            )
         return None
 
 
-def build_vacancy_from_api(page, document: dict) -> Vacancy | None:
+def build_vacancy_from_api(
+    page,
+    document: dict,
+    stats: dict | None = None,
+) -> Vacancy | None:
     vacancy_id = document.get("id")
     if not vacancy_id:
         return None
@@ -101,8 +127,13 @@ def build_vacancy_from_api(page, document: dict) -> Vacancy | None:
         detail = fetch_api_json(
             page,
             f"https://{host}{API_DETAIL_PATH}?id={vacancy_id}",
+            stats,
         )
+        if stats is not None:
+            stats["detail_requests"] = stats.get("detail_requests", 0) + 1
         if isinstance(detail, dict):
+            if stats is not None:
+                stats["detail_success"] = stats.get("detail_success", 0) + 1
             break
 
     if not isinstance(detail, dict):
@@ -193,11 +224,18 @@ def build_vacancy_from_api(page, document: dict) -> Vacancy | None:
     )
 
 
-def collect_from_api(page, term: str) -> list[Vacancy]:
+def collect_from_api(
+    page,
+    term: str,
+    stats: dict | None = None,
+) -> list[Vacancy]:
     result = []
     seen = set()
 
     for page_number in range(1, API_MAX_PAGES + 1):
+        if stats is not None:
+            stats["pages"] = stats.get("pages", 0) + 1
+
         query = quote(term)
 
         payload = None
@@ -210,14 +248,20 @@ def collect_from_api(page, term: str) -> list[Vacancy]:
                 f"&count={API_PAGE_SIZE}"
                 f"&page={page_number}"
             )
-            payload = fetch_api_json(page, url)
+            payload = fetch_api_json(page, url, stats)
             if isinstance(payload, dict):
+                if stats is not None:
+                    stats.setdefault("successful_hosts", []).append(host)
                 break
 
         if not isinstance(payload, dict):
             break
 
         documents = payload.get("documents") or []
+
+        if stats is not None:
+            stats["documents"] = stats.get("documents", 0) + len(documents)
+
         if not documents:
             break
 
@@ -230,6 +274,11 @@ def collect_from_api(page, term: str) -> list[Vacancy]:
             # Keep only vacancies whose TITLE contains Power BI.
             if "power bi" not in raw_title and "powerbi" not in raw_title:
                 continue
+
+            if stats is not None:
+                stats["power_bi_titles"] = (
+                    stats.get("power_bi_titles", 0) + 1
+                )
 
             vacancy_id = document.get("id")
             if not vacancy_id:
@@ -244,10 +293,13 @@ def collect_from_api(page, term: str) -> list[Vacancy]:
             vacancy = build_vacancy_from_api(
                 page,
                 document,
+                stats,
             )
 
             if vacancy is not None and vacancy.remote:
                 result.append(vacancy)
+                if stats is not None:
+                    stats["accepted"] = stats.get("accepted", 0) + 1
 
     return result
 
@@ -295,7 +347,12 @@ def enrich_html_vacancy(page, vacancy: Vacancy) -> Vacancy:
     return vacancy
 
 
-def collect_html_fallback(page, detail, term: str) -> list[Vacancy]:
+def collect_html_fallback(
+    page,
+    detail,
+    term: str,
+    stats: dict | None = None,
+) -> list[Vacancy]:
     query = "-".join(
         term.strip().lower().split()
     )
@@ -321,6 +378,9 @@ def collect_html_fallback(page, detail, term: str) -> list[Vacancy]:
         links = page.locator(
             "a[href*='/vacancy']"
         ).all()
+
+        if stats is not None:
+            stats["html_links"] = len(links)
     except Exception:
         return []
 
@@ -370,6 +430,9 @@ def collect_html_fallback(page, detail, term: str) -> list[Vacancy]:
         except Exception:
             continue
 
+    if stats is not None:
+        stats["html_candidates"] = len(candidates)
+
     result = []
     seen = set()
 
@@ -391,6 +454,9 @@ def collect_html_fallback(page, detail, term: str) -> list[Vacancy]:
         if vacancy.remote:
             result.append(vacancy)
 
+    if stats is not None:
+        stats["html_accepted"] = len(result)
+
     return result
 
 
@@ -398,6 +464,19 @@ class RobotaCollector(BaseCollector):
     source = "robota.ua"
 
     def collect(self, terms: list[str]) -> list[Vacancy]:
+        stats = {
+            "requests": 0,
+            "statuses": [],
+            "pages": 0,
+            "documents": 0,
+            "power_bi_titles": 0,
+            "detail_requests": 0,
+            "detail_success": 0,
+            "accepted": 0,
+            "errors": [],
+        }
+        self.last_stats = stats
+
         with Browser() as browser:
             api_page = browser.browser.new_page()
 
@@ -405,6 +484,7 @@ class RobotaCollector(BaseCollector):
                 api_result = collect_from_api(
                     api_page,
                     term,
+                    stats,
                 )
 
                 if api_result:
@@ -422,6 +502,7 @@ class RobotaCollector(BaseCollector):
                         page,
                         detail,
                         term,
+                        stats,
                     )
                 )
 
