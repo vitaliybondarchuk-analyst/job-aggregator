@@ -356,32 +356,63 @@ def fetch_jina(url: str, stats: dict | None = None) -> str:
 
 
 def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
+    """Extract Power BI vacancy links from Jina's Markdown output.
+
+    Jina may render a Robota result as an inline Markdown link, a link whose
+    URL is separated from the title, or a line where the Power BI title and
+    vacancy URL are adjacent but not part of the same Markdown token.
+    """
     import re
 
     result = []
     seen = set()
 
-    pattern = re.compile(
-        r"\[([^\]]*Power\s*BI[^\]]*)\]"
-        r"\((https?://(?:www\.)?robota\.ua/[^)]+/vacancy[^)]*)\)",
+    # 1. Standard inline Markdown: [title](vacancy-url)
+    inline_pattern = re.compile(
+        r"\\[([^\\]]+)\\]\\((https?://(?:www\\.)?robota\\.ua/[^)\\s]+/vacancy[^)\\s]*)\\)",
         re.IGNORECASE,
     )
 
-    for match in pattern.finditer(content):
+    for match in inline_pattern.finditer(content):
         title = clean_title(match.group(1))
         url = match.group(2).split("#", 1)[0]
+        if is_power_bi_title(title) and url not in seen:
+            seen.add(url)
+            result.append((title, url))
 
-        if not title or not is_power_bi_title(title):
-            continue
+    # 2. More permissive fallback: find every Robota vacancy URL and inspect
+    # nearby text for the Power BI title. This covers Jina link formatting
+    # where the title and URL are separated into different Markdown lines.
+    url_pattern = re.compile(
+        r"https?://(?:www\\.)?robota\\.ua/[^\\s<>)\\\"]+/vacancy[^\\s<>)\\\"]*",
+        re.IGNORECASE,
+    )
 
+    for match in url_pattern.finditer(content):
+        url = match.group(0).rstrip(".,;:)").split("#", 1)[0]
         if url in seen:
             continue
 
-        seen.add(url)
-        result.append((title, url))
+        start = max(0, match.start() - 800)
+        context = content[start:match.start()]
+        lines = [clean_title(line) for line in context.splitlines() if clean_title(line)]
+
+        title = ""
+        for line in reversed(lines):
+            if is_power_bi_title(line):
+                # Remove common Markdown decoration and link markers.
+                title = clean_title(
+                    re.sub(r"^[-*#>\\s]+", "", line)
+                    .replace("**", "")
+                    .replace("__", "")
+                )
+                break
+
+        if title and is_power_bi_title(title):
+            seen.add(url)
+            result.append((title, url))
 
     return result
-
 
 def collect_from_jina(term: str, stats: dict | None = None) -> list[Vacancy]:
     query = "-".join(term.strip().lower().split())
@@ -394,7 +425,7 @@ def collect_from_jina(term: str, stats: dict | None = None) -> list[Vacancy]:
 
     if stats is not None:
         stats["jina_search_chars"] = len(content)
-        stats["jina_power_bi_count"] = content.lower().count("power bi")
+        stats["jina_power_bi_count"] = content.lower().count("power bi")\n        marker = content.lower().find("power bi")\n        stats["jina_power_bi_sample"] = (\n            content[max(0, marker - 500): marker + 1500]\n            if marker >= 0 else ""\n        )
 
     if not content:
         return []
