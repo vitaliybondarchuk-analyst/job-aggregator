@@ -362,42 +362,40 @@ def parse_jina_vacancy_links(content: str) -> list[tuple[str, str]]:
     result = []
     seen = set()
 
-    # Jina normally renders Robota cards as [title](vacancy-url).
-    inline_pattern = re.compile(
-        r"\\[([^\\]]+)\\]\\((https?://(?:www\\.)?robota\\.ua/[^)\\s]+/vacancy[^)\\s]*)\\)",
-        re.IGNORECASE,
-    )
-
-    for match in inline_pattern.finditer(content):
-        title = clean_title(match.group(1))
-        url = match.group(2).split("#", 1)[0]
-        if is_power_bi_title(title) and url not in seen:
-            seen.add(url)
-            result.append((title, url))
-
-    # Fallback for formats where title and URL are separated.
-    url_pattern = re.compile(
-        r'https?://(?:www\\.)?robota\\.ua/[^\\s<>)"]+/vacancy[^\\s<>)"]*',
-        re.IGNORECASE,
-    )
+    # Jina renders Robota cards as Markdown links. Avoid a complex URL regex:
+    # extract plain URLs first, then inspect the nearby Markdown text.
+    url_pattern = re.compile(r"https?://[^\\s)]+", re.IGNORECASE)
 
     for match in url_pattern.finditer(content):
-        url = match.group(0).rstrip(".,;:)").split("#", 1)[0]
+        url = match.group(0).rstrip(".,;:")
+        if "robota.ua" not in url.lower() or "/vacancy" not in url.lower():
+            continue
+
+        url = url.split("#", 1)[0]
         if url in seen:
             continue
 
-        context = content[max(0, match.start() - 800):match.start()]
-        lines = [clean_title(line) for line in context.splitlines() if clean_title(line)]
+        line_start = content.rfind("\\n", 0, match.start()) + 1
+        line_end = content.find("\\n", match.end())
+        if line_end < 0:
+            line_end = len(content)
+        line = content[line_start:line_end]
 
+        # Typical form: [title](http://robota.ua/.../vacancy123)
         title = ""
-        for line in reversed(lines):
-            if is_power_bi_title(line):
-                title = clean_title(
-                    re.sub(r"^[-*#>\\s]+", "", line)
-                    .replace("**", "")
-                    .replace("__", "")
-                )
-                break
+        open_bracket = line.rfind("[", 0, match.start() - line_start)
+        close_marker = line.find("](", open_bracket + 1)
+        if open_bracket >= 0 and close_marker >= 0:
+            title = clean_title(line[open_bracket + 1:close_marker])
+
+        # If the URL/title are separated, inspect preceding lines.
+        if not title:
+            context = content[max(0, match.start() - 1000):match.start()]
+            for candidate in reversed(context.splitlines()):
+                candidate = clean_title(candidate)
+                if is_power_bi_title(candidate):
+                    title = candidate
+                    break
 
         if title and is_power_bi_title(title):
             seen.add(url)
