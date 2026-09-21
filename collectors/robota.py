@@ -1,3 +1,4 @@
+from urllib.parse import quote
 
 from collectors.base import (
     BaseCollector,
@@ -8,37 +9,11 @@ from collectors.browser import Browser
 from models import Vacancy
 
 
-REMOTE_HINTS = (
-    "віддалена робота",
-    "віддалено",
-    "дистанційно",
-    "дистанційна робота",
-    "remote",
-    "remotely",
-    "full remote",
-    "fully remote",
-    "remote work",
-)
-
-NON_REMOTE_HINTS = (
-    "hybrid",
-    "гібрид",
-    "гібридна робота",
-    "гібридний формат",
-    "гібридний",
-    "on-site",
-    "on site",
-    "onsite",
-    "office-based",
-    "office based",
-    "office only",
-    "офіс",
-    "офісна робота",
-    "робота в офісі",
-    "в офісі",
-    "на місці",
-    "робота на місці",
-)
+API_SEARCH_URL = "https://api.robota.ua/vacancy/search"
+API_DETAIL_URL = "https://api.robota.ua/vacancy"
+API_PAGE_SIZE = 50
+API_MAX_PAGES = 5
+REMOTE_SCHEDULE_ID = 3
 
 REMOTE_LABELS = {
     "віддалена робота",
@@ -55,120 +30,13 @@ def normalize_whitespace(text: str) -> str:
     return clean_text(text)
 
 
-def extract_card_text(anchor) -> str:
-    """
-    Extract the visible vacancy-card text.
-
-    This is used only for:
-    - detecting remote status;
-    - initial employment detection;
-    - finding the vacancy URL.
-
-    It is NOT used as the vacancy description.
-    """
-
-    try:
-
-        return normalize_whitespace(
-            anchor.evaluate(
-                """
-                (el) => {
-                    let node = el;
-
-                    for (let i = 0; i < 10 && node; i++) {
-
-                        const text = (
-                            node.innerText || ''
-                        ).trim();
-
-                        if (text.length >= 80) {
-                            return text;
-                        }
-
-                        node = node.parentElement;
-                    }
-
-                    return (
-                        el.innerText || ''
-                    ).trim();
-                }
-                """
-            )
-        )
-
-    except Exception:
-
-        try:
-            return normalize_whitespace(
-                anchor.inner_text()
-            )
-
-        except Exception:
-            return ""
+def is_power_bi_title(title: str) -> bool:
+    value = normalize_whitespace(title).lower()
+    return "power bi" in value or "powerbi" in value
 
 
-def is_explicit_non_remote(
-    text: str,
-) -> bool:
-    """
-    Return True when the vacancy explicitly indicates
-    office/on-site/hybrid work.
-
-    Non-remote markers have priority over remote markers.
-    """
-
-    text = normalize_whitespace(
-        text
-    ).lower()
-
-    if not text:
-        return False
-
-    return any(
-        marker in text
-        for marker in NON_REMOTE_HINTS
-    )
-
-
-def explicit_remote(
-    text: str,
-) -> bool:
-    """
-    Accept a vacancy only when remote work is explicitly
-    indicated.
-
-    Any explicit office/hybrid/on-site marker rejects it.
-    """
-
-    text = normalize_whitespace(
-        text
-    ).lower()
-
-    if not text:
-        return False
-
-    if is_explicit_non_remote(
-        text[:1500]
-    ):
-        return False
-
-    return any(
-        marker in text[:1500]
-        for marker in REMOTE_HINTS
-    )
-
-
-def clean_title(
-    title: str,
-) -> str:
-    """
-    Clean a title extracted from Robota.ua.
-    """
-
-    title = normalize_whitespace(
-        title
-    )
-
+def clean_title(title: str) -> str:
+    title = normalize_whitespace(title)
     if not title:
         return ""
 
@@ -181,768 +49,373 @@ def clean_title(
     )
 
     changed = True
-
     while changed:
-
         changed = False
-
         for prefix in prefixes:
-
-            if title.lower().startswith(
-                prefix.lower()
-            ):
-
-                title = title[
-                    len(prefix):
-                ].strip()
-
+            if title.lower().startswith(prefix.lower()):
+                title = title[len(prefix):].strip()
                 changed = True
 
     if title.lower() in REMOTE_LABELS:
         return ""
 
-    # Remove obvious card metadata accidentally appended
-    # to the title.
-    lower = title.lower()
+    return title[:300]
 
-    cut_markers = (
-        " компанія з відзнаками",
-        " company with awards",
-        " відгукнутись",
-        " відгукнутися",
-        " respond ",
-        " reply ",
-    )
 
-    positions = []
-
-    for marker in cut_markers:
-
-        position = lower.find(
-            marker
+def fetch_api_json(page, url: str):
+    try:
+        response = page.request.get(
+            url,
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "uk-UA,uk;q=0.9,en;q=0.8",
+                "Origin": "https://robota.ua",
+                "Referer": "https://robota.ua/",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            },
+            timeout=30000,
         )
+    except Exception:
+        return None
 
-        if position > 0:
-            positions.append(
-                position
-            )
-
-    if positions:
-
-        title = title[
-            :min(positions)
-        ].strip()
-
-    return normalize_whitespace(
-        title
-    )[:300]
-
-
-def extract_title_from_detail(
-    page,
-) -> str:
-    """
-    Extract the actual vacancy title from the detail page.
-
-    h1 is the primary source.
-    """
+    if not response.ok:
+        return None
 
     try:
+        return response.json()
+    except Exception:
+        return None
 
-        locator = page.locator(
-            "h1"
+
+def build_vacancy_from_api(page, document: dict) -> Vacancy | None:
+    vacancy_id = document.get("id")
+    if not vacancy_id:
+        return None
+
+    detail = fetch_api_json(
+        page,
+        f"{API_DETAIL_URL}?id={vacancy_id}",
+    )
+
+    if not isinstance(detail, dict):
+        return None
+
+    if str(detail.get("id")) != str(vacancy_id):
+        return None
+
+    if detail.get("isActive") is False:
+        return None
+
+    title = clean_title(
+        detail.get("name")
+        or document.get("name")
+        or ""
+    )
+
+    if not title or not is_power_bi_title(title):
+        return None
+
+    description = clean_text(
+        detail.get("description") or ""
+    )
+
+    company = clean_text(
+        detail.get("companyName") or ""
+    )
+
+    salary = ""
+    salary_from = detail.get("salaryFrom")
+    salary_to = detail.get("salaryTo")
+    salary_exact = detail.get("salary")
+
+    if salary_from and salary_to:
+        salary = f"{salary_from}–{salary_to} ₴"
+    elif salary_from:
+        salary = f"{salary_from} ₴"
+    elif salary_to:
+        salary = f"{salary_to} ₴"
+    elif salary_exact:
+        salary = f"{salary_exact} ₴"
+
+    schedule_id = detail.get("scheduleId")
+
+    # scheduleId=3 is Robota's remote-work filter.
+    # The search request itself is also restricted to scheduleId=3.
+    remote = (
+        str(schedule_id) == str(REMOTE_SCHEDULE_ID)
+        or schedule_id is None
+    )
+
+    employment = ""
+    try:
+        schedule = int(schedule_id)
+        if schedule == 1:
+            employment = "Full-time"
+        elif schedule == 2:
+            employment = "Part-time"
+    except (TypeError, ValueError):
+        employment = infer_employment(description)
+
+    company_id = (
+        document.get("notebookId")
+        or detail.get("notebookId")
+        or ""
+    )
+
+    if company_id:
+        url = (
+            f"https://robota.ua/company{company_id}"
+            f"/vacancy{vacancy_id}"
+        )
+    else:
+        url = f"https://robota.ua/vacancy{vacancy_id}"
+
+    return Vacancy(
+        title=title,
+        company=company,
+        url=url,
+        source="robota.ua",
+        description=description[:12000],
+        employment_type=employment,
+        remote=remote,
+        salary=salary,
+        location=clean_text(detail.get("cityName") or ""),
+        posted=clean_text(detail.get("date") or ""),
+        category="Power BI",
+    )
+
+
+def collect_from_api(page, term: str) -> list[Vacancy]:
+    result = []
+    seen = set()
+
+    for page_number in range(API_MAX_PAGES):
+        query = quote(term)
+
+        url = (
+            f"{API_SEARCH_URL}"
+            f"?keyWords={query}"
+            f"&scheduleId={REMOTE_SCHEDULE_ID}"
+            f"&count={API_PAGE_SIZE}"
+            f"&page={page_number}"
+            f"&sortBy=Date"
         )
 
-        count = locator.count()
+        payload = fetch_api_json(page, url)
 
-        for index in range(
-            min(count, 5)
-        ):
+        if not isinstance(payload, dict):
+            break
 
-            try:
+        documents = payload.get("documents") or []
+        if not documents:
+            break
 
-                value = normalize_whitespace(
-                    locator.nth(
-                        index
-                    ).inner_text(
-                        timeout=3000
-                    )
-                )
+        for document in documents:
+            raw_title = normalize_whitespace(
+                document.get("name") or ""
+            ).lower()
 
-                value = clean_title(
-                    value
-                )
-
-                if value:
-                    return value
-
-            except Exception:
+            # Search API is broader than our final requirement.
+            # Keep only vacancies whose TITLE contains Power BI.
+            if "power bi" not in raw_title and "powerbi" not in raw_title:
                 continue
 
-    except Exception:
-        pass
-
-    # Fallback to headings.
-    try:
-
-        locator = page.locator(
-            "h2, h3, h4"
-        )
-
-        count = locator.count()
-
-        for index in range(
-            min(count, 10)
-        ):
-
-            try:
-
-                value = normalize_whitespace(
-                    locator.nth(
-                        index
-                    ).inner_text(
-                        timeout=2000
-                    )
-                )
-
-                value = clean_title(
-                    value
-                )
-
-                if value:
-                    return value
-
-            except Exception:
+            vacancy_id = document.get("id")
+            if not vacancy_id:
                 continue
 
-    except Exception:
-        pass
-
-    return ""
-
-
-def extract_description_from_detail(
-    page,
-) -> str:
-    """
-    Extract the actual vacancy description.
-
-    Robota.ua's <body> and <main> contain navigation,
-    application UI and footer, so we deliberately avoid
-    returning the entire body.
-
-    We look for text blocks containing actual vacancy
-    content and select the most meaningful one.
-    """
-
-    selectors = (
-        '[class*="vacancy-description"]',
-        '[class*="VacancyDescription"]',
-        '[class*="description"]',
-        '[class*="Description"]',
-        '[data-testid*="description"]',
-        '[data-qa*="description"]',
-    )
-
-    candidates = []
-
-    for selector in selectors:
-
-        try:
-
-            locator = page.locator(
-                selector
-            )
-
-            count = locator.count()
-
-            for index in range(
-                min(count, 20)
-            ):
-
-                try:
-
-                    text = normalize_whitespace(
-                        locator.nth(
-                            index
-                        ).inner_text(
-                            timeout=2000
-                        )
-                    )
-
-                    if len(text) >= 150:
-                        candidates.append(
-                            text
-                        )
-
-                except Exception:
-                    continue
-
-        except Exception:
-            continue
-
-    # --------------------------------------------------------
-    # If a specific description container exists, use it.
-    # --------------------------------------------------------
-
-    if candidates:
-
-        # Prefer the longest meaningful description.
-        candidates.sort(
-            key=len,
-            reverse=True,
-        )
-
-        return candidates[0][:12000]
-
-    # --------------------------------------------------------
-    # Fallback: inspect paragraphs/list items.
-    # --------------------------------------------------------
-
-    try:
-
-        locator = page.locator(
-            "p, li"
-        )
-
-        count = locator.count()
-
-        paragraphs = []
-
-        for index in range(
-            min(count, 300)
-        ):
-
-            try:
-
-                text = normalize_whitespace(
-                    locator.nth(
-                        index
-                    ).inner_text(
-                        timeout=1000
-                    )
-                )
-
-                if len(text) >= 40:
-                    paragraphs.append(
-                        text
-                    )
-
-            except Exception:
+            key = str(vacancy_id)
+            if key in seen:
                 continue
 
-        if paragraphs:
+            seen.add(key)
 
-            description = "\n".join(
-                paragraphs
+            vacancy = build_vacancy_from_api(
+                page,
+                document,
             )
 
-            if len(description) >= 150:
+            if vacancy is not None and vacancy.remote:
+                result.append(vacancy)
 
-                return description[
-                    :12000
-                ]
-
-    except Exception:
-        pass
-
-    return ""
+    return result
 
 
-def extract_company_from_detail(
-    page,
-) -> str:
-    """
-    Extract company name from structured page data
-    when available.
-
-    JSON-LD is handled by BaseCollector, so this method
-    is only a lightweight fallback.
-    """
-
-    selectors = (
-        '[class*="company"]',
-        '[class*="Company"]',
-        '[data-testid*="company"]',
-        '[data-qa*="company"]',
-    )
-
-    for selector in selectors:
-
-        try:
-
-            locator = page.locator(
-                selector
-            )
-
-            count = locator.count()
-
-            for index in range(
-                min(count, 10)
-            ):
-
-                try:
-
-                    text = normalize_whitespace(
-                        locator.nth(
-                            index
-                        ).inner_text(
-                            timeout=1000
-                        )
-                    )
-
-                    if not text:
-                        continue
-
-                    if len(text) <= 150:
-                        return text
-
-                except Exception:
-                    continue
-
-        except Exception:
-            continue
-
-    return ""
-
-
-def extract_location_from_detail(
-    page,
-) -> str:
-    """
-    Lightweight location extraction.
-
-    JSON-LD remains the preferred source.
-    """
-
-    selectors = (
-        '[class*="location"]',
-        '[class*="Location"]',
-        '[data-testid*="location"]',
-        '[data-qa*="location"]',
-    )
-
-    for selector in selectors:
-
-        try:
-
-            locator = page.locator(
-                selector
-            )
-
-            count = locator.count()
-
-            for index in range(
-                min(count, 10)
-            ):
-
-                try:
-
-                    text = normalize_whitespace(
-                        locator.nth(
-                            index
-                        ).inner_text(
-                            timeout=1000
-                        )
-                    )
-
-                    if text and len(text) <= 150:
-                        return text
-
-                except Exception:
-                    continue
-
-        except Exception:
-            continue
-
-    return ""
-
-
-def enrich_robota_vacancy(
-    page,
-    vacancy: Vacancy,
-) -> Vacancy:
-    """
-    Enrich vacancy from its detail page.
-    """
-
+def extract_card_text(anchor) -> str:
     try:
+        return normalize_whitespace(
+            anchor.inner_text(timeout=2000)
+        )
+    except Exception:
+        return ""
 
+
+def enrich_html_vacancy(page, vacancy: Vacancy) -> Vacancy:
+    try:
         page.goto(
             vacancy.url,
             wait_until="domcontentloaded",
             timeout=20000,
         )
-
-        page.wait_for_timeout(
-            1000
-        )
-
+        page.wait_for_timeout(1000)
     except Exception:
         return vacancy
 
-    # --------------------------------------------------------
-    # Title
-    # --------------------------------------------------------
-
-    title = extract_title_from_detail(
-        page
-    )
-
-    if title:
-        vacancy.title = title
-
-    # --------------------------------------------------------
-    # Description
-    # --------------------------------------------------------
-
-    description = (
-        extract_description_from_detail(
-            page
+    try:
+        h1 = page.locator("h1").first.inner_text(
+            timeout=3000
         )
-    )
+        h1 = clean_title(h1)
+        if h1:
+            vacancy.title = h1
+    except Exception:
+        pass
 
-    if description:
-        vacancy.description = description
-
-    # --------------------------------------------------------
-    # Company
-    # --------------------------------------------------------
-
-    if not vacancy.company:
-
-        company = (
-            extract_company_from_detail(
-                page
-            )
+    try:
+        body = clean_text(
+            page.locator("body").inner_text(timeout=4000)
         )
+    except Exception:
+        body = ""
 
-        if company:
-            vacancy.company = company
-
-    # --------------------------------------------------------
-    # Location
-    # --------------------------------------------------------
-
-    if not vacancy.location:
-
-        location = (
-            extract_location_from_detail(
-                page
-            )
-        )
-
-        if location:
-            vacancy.location = location
-
-    # --------------------------------------------------------
-    # Employment
-    # --------------------------------------------------------
-
-    detail_text = normalize_whitespace(
-        description
-    )
-
-    if not vacancy.employment_type:
-        vacancy.employment_type = infer_employment(
-            detail_text
-        )
-
-    # --------------------------------------------------------
-    # Remote status
-    # --------------------------------------------------------
-    #
-    # Do not treat every mention of "office" in the vacancy body
-    # as an office-only vacancy. Robota frequently includes office
-    # benefits/locations in remote vacancies.
-    #
-    # If the detail body explicitly advertises hybrid/office mode,
-    # reject it. Otherwise keep the card-level remote decision.
-    detail_mode_text = normalize_whitespace(
-        f"{vacancy.title} {vacancy.location}"
-    )
-
-    if is_explicit_non_remote(detail_mode_text):
-        vacancy.remote = False
-    elif any(
-        marker in detail_mode_text.lower()
-        for marker in REMOTE_HINTS
-    ):
-        vacancy.remote = True
+    if body:
+        vacancy.description = body[:12000]
 
     return vacancy
 
 
-class RobotaCollector(
-    BaseCollector
-):
+def collect_html_fallback(page, detail, term: str) -> list[Vacancy]:
+    query = "-".join(
+        term.strip().lower().split()
+    )
 
-    source = "robota.ua"
+    url = (
+        "https://robota.ua/ua/zapros/"
+        f"{query}/ukraine"
+    )
 
-    def collect(
-        self,
-        terms: list[str],
-    ) -> list[Vacancy]:
+    try:
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
+        page.wait_for_timeout(2000)
+    except Exception:
+        return []
 
-        candidates = []
+    candidates = []
 
-        with Browser() as browser:
+    try:
+        links = page.locator(
+            "a[href*='/vacancy']"
+        ).all()
+    except Exception:
+        return []
 
-            page = browser.browser.new_page()
+    for anchor in links[:100]:
+        try:
+            href = (
+                anchor.get_attribute("href") or ""
+            )
 
-            detail = browser.browser.new_page()
+            if not href or "/vacancy" not in href.lower():
+                continue
 
-            for term in terms:
+            if href.startswith("/"):
+                href = "https://robota.ua" + href
 
-                # Robota search should query Power BI directly.
-                # Remote status is validated from each vacancy card/detail page.
-                # Robota uses hyphen-separated slugs in the search path.
-                # quote_plus() would produce "power+bi", which is not the
-                # same route as the live "power-bi" search page.
-                query = "-".join(
-                    term.strip().lower().split()
-                )
+            card_text = extract_card_text(anchor)
+            lines = [
+                normalize_whitespace(line)
+                for line in card_text.splitlines()
+                if normalize_whitespace(line)
+            ]
 
-                url = (
-                    "https://robota.ua/ua/zapros/"
-                    f"{query}/ukraine"
-                )
-
-                try:
-
-                    page.goto(
-                        url,
-                        wait_until="domcontentloaded",
-                        timeout=30000,
-                    )
-
-                    page.wait_for_timeout(
-                        1000
-                    )
-
-                    links = page.locator(
-                        "a[href*='/vacancy']"
-                    ).all()
-
-                    for anchor in links[:100]:
-
-                        try:
-
-                            href = (
-                                anchor.get_attribute(
-                                    "href"
-                                )
-                                or ""
-                            )
-
-                            if (
-                                not href
-                                or "/vacancy"
-                                not in href.lower()
-                            ):
-                                continue
-
-                            if href.startswith(
-                                "/"
-                            ):
-
-                                href = (
-                                    "https://robota.ua"
-                                    + href
-                                )
-
-                            card_text = (
-                                extract_card_text(
-                                    anchor
-                                )
-                            )
-
-                            if not card_text:
-                                continue
-
-                            # Do not require the remote marker at card level.
-                            # Robota's card markup can place the remote label outside
-                            # the selected anchor. Remote status is validated after
-                            # opening the detail page.
-                            # ------------------------------------------------
-                            # Initial title.
-                            #
-                            # We will replace this with the detail-page
-                            # h1 during enrichment.
-                            # ------------------------------------------------
-
-                            title = ""
-
-                            try:
-                                raw_anchor_text = anchor.inner_text(
-                                    timeout=2000
-                                )
-                                # Robota's result link can wrap the entire
-                                # vacancy card. Extract the line that looks
-                                # like the actual vacancy title instead of
-                                # using the whole card as title.
-                                lines = [
-                                    normalize_whitespace(line)
-                                    for line in raw_anchor_text.splitlines()
-                                    if normalize_whitespace(line)
-                                ]
-                                power_bi_lines = [
-                                    line for line in lines
-                                    if "power bi" in line.lower()
-                                    or "powerbi" in line.lower()
-                                ]
-                                if power_bi_lines:
-                                    title = clean_title(
-                                        power_bi_lines[0]
-                                    )
-                                elif lines:
-                                    title = clean_title(lines[0])
-                            except Exception:
-                                pass
-
-                            if not title:
-                                try:
-                                    anchor_title = (
-                                        anchor.get_attribute("title")
-                                        or ""
-                                    )
-                                    title = clean_title(anchor_title)
-                                except Exception:
-                                    pass
-
-                            if not title:
-                                try:
-                                    aria = (
-                                        anchor.get_attribute("aria-label")
-                                        or ""
-                                    )
-                                    title = clean_title(aria)
-                                except Exception:
-                                    pass
-
-                            # Do NOT use the whole card text as title.
-                            #
-                            # If we cannot get an initial title,
-                            # we still keep the candidate because
-                            # the detail page may provide h1.
-                            #
-                            employment = (
-                                infer_employment(
-                                    card_text
-                                )
-                            )
-
-                            candidates.append(
-                                Vacancy(
-                                    title=title,
-                                    company="",
-                                    url=href,
-                                    source=self.source,
-                                    description="",
-                                    employment_type=employment,
-                                    # Card text often contains office/benefit
-                                    # wording even for remote vacancies.
-                                    # Remote status is validated on the detail
-                                    # page, so do not reject candidates here.
-                                    remote=True,
-                                    salary="",
-                                    location="",
-                                    posted="",
-                                    category=(
-                                        "Core/Adjacent BI & Data"
-                                    ),
-                                )
-                            )
-
-                        except Exception:
-                            continue
-
-                except Exception:
-                    continue
-
-            # ----------------------------------------------------
-            # Deduplicate URLs before detail requests.
-            # ----------------------------------------------------
-
-            unique = []
-
-            seen = set()
-
-            for vacancy in candidates:
-
-                key = vacancy.url.rstrip(
-                    "/"
-                )
-
-                if not key:
-                    continue
-
-                if key in seen:
-                    continue
-
-                seen.add(key)
-
-                unique.append(
-                    vacancy
-                )
-
-                if len(unique) >= 100:
+            title = ""
+            for line in lines:
+                if is_power_bi_title(line):
+                    title = clean_title(line)
                     break
 
-            # ----------------------------------------------------
-            # Detail enrichment.
-            # ----------------------------------------------------
+            if not title:
+                title = clean_title(
+                    anchor.get_attribute("title") or ""
+                )
 
-            enriched = []
+            if not title:
+                continue
 
-            for vacancy in unique:
+            candidates.append(
+                Vacancy(
+                    title=title,
+                    url=href,
+                    source="robota.ua",
+                    remote=True,
+                    category="Power BI",
+                )
+            )
 
-                try:
+        except Exception:
+            continue
 
-                    enriched.append(
-                        enrich_robota_vacancy(
-                            detail,
-                            vacancy,
-                        )
-                    )
+    result = []
+    seen = set()
 
-                except Exception:
+    for vacancy in candidates:
+        key = vacancy.url.rstrip("/")
+        if not key or key in seen:
+            continue
 
-                    enriched.append(
-                        vacancy
-                    )
+        seen.add(key)
 
-            # ----------------------------------------------------
-            # Final validation.
-            # ----------------------------------------------------
+        vacancy = enrich_html_vacancy(
+            detail,
+            vacancy,
+        )
+
+        if not is_power_bi_title(vacancy.title):
+            continue
+
+        if vacancy.remote:
+            result.append(vacancy)
+
+    return result
+
+
+class RobotaCollector(BaseCollector):
+    source = "robota.ua"
+
+    def collect(self, terms: list[str]) -> list[Vacancy]:
+        with Browser() as browser:
+            api_page = browser.browser.new_page()
+
+            for term in terms:
+                api_result = collect_from_api(
+                    api_page,
+                    term,
+                )
+
+                if api_result:
+                    return api_result
+
+            # Fallback for temporary API failures.
+            page = browser.browser.new_page()
+            detail = browser.browser.new_page()
 
             result = []
 
-            for vacancy in enriched:
-
-                # Must have a real title.
-                if not vacancy.title:
-                    continue
-
-                # Generic labels are invalid.
-                if vacancy.title.lower() in REMOTE_LABELS:
-                    continue
-
-                # Explicit office/hybrid vacancies are invalid.
-                combined = normalize_whitespace(
-                    f"{vacancy.title} "
-                    f"{vacancy.location}"
-                ).lower()
-
-                if is_explicit_non_remote(combined):
-                    continue
-
-                # Must remain remote.
-                if not vacancy.remote:
-                    continue
-
-                result.append(
-                    vacancy
+            for term in terms:
+                result.extend(
+                    collect_html_fallback(
+                        page,
+                        detail,
+                        term,
+                    )
                 )
 
             return result
