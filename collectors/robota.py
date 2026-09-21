@@ -455,42 +455,52 @@ def collect_from_jina(
         "power-bi-consultant",
     ]
     search_queries = list(dict.fromkeys(search_queries))
-    max_pages = 1
 
     for search_query in search_queries:
-        search_url = (
-            "https://robota.ua/ua/zapros/"
-            f"{search_query}/ukraine"
-        )
+        # The main Power BI search contains many relevant vacancies but Robota's
+        # relevance ordering can place generic roles on the first page. Paginate
+        # the main query to reach additional Power BI titles. Keep the narrower
+        # title-oriented variants to one page to avoid unnecessary requests.
+        max_pages = 5 if search_query == query else 1
 
-        content = fetch_jina(search_url, stats)
-        if not content:
-            continue
-
-        if stats is not None:
-            stats["jina_search_chars"] = (
-                stats.get("jina_search_chars", 0) + len(content)
+        for page_number in range(1, max_pages + 1):
+            search_url = (
+                "https://robota.ua/ua/zapros/"
+                f"{search_query}/ukraine"
             )
-            stats["jina_power_bi_count"] = (
-                stats.get("jina_power_bi_count", 0)
-                + content.lower().count("power bi")
-            )
-            stats["jina_pages"] = stats.get("jina_pages", 0) + 1
-            stats["jina_queries"] = stats.get("jina_queries", 0) + 1
-            stats.setdefault("jina_query_names", []).append(search_query)
+            if page_number > 1:
+                search_url += f"/params;page={page_number}"
 
-            if search_query == search_queries[0]:
-                marker = content.lower().find("power bi")
-                stats["jina_power_bi_sample"] = (
-                    content[max(0, marker - 500):marker + 1500]
-                    if marker >= 0 else ""
+            content = fetch_jina(search_url, stats)
+            if not content:
+                continue
+
+            if stats is not None:
+                stats["jina_search_chars"] = (
+                    stats.get("jina_search_chars", 0) + len(content)
+                )
+                stats["jina_power_bi_count"] = (
+                    stats.get("jina_power_bi_count", 0)
+                    + content.lower().count("power bi")
+                )
+                stats["jina_pages"] = stats.get("jina_pages", 0) + 1
+                stats["jina_queries"] = stats.get("jina_queries", 0) + 1
+                stats.setdefault("jina_query_names", []).append(
+                    f"{search_query}#page={page_number}"
                 )
 
-        for title, url in parse_jina_vacancy_links(content):
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            all_candidates.append((title, url))
+                if search_query == search_queries[0] and page_number == 1:
+                    marker = content.lower().find("power bi")
+                    stats["jina_power_bi_sample"] = (
+                        content[max(0, marker - 500):marker + 1500]
+                        if marker >= 0 else ""
+                    )
+
+            for title, url in parse_jina_vacancy_links(content):
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                all_candidates.append((title, url))
 
     power_bi_candidates = [
         item for item in all_candidates
