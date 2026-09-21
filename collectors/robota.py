@@ -440,7 +440,26 @@ def parse_jina_vacancy_links(
 
         title = extract_jina_card_title(card_text)
 
+        # Jina can flatten Robota's card into one line where the company name
+        # follows the vacancy title. The logo alt text is the most reliable
+        # company boundary available in that serialized card, so remove it
+        # before using the card title as a fallback.
         if title:
+            company_match = re.search(
+                r"!\[[^:]*:\s*([^\]]+)\]\(",
+                card_text,
+                re.IGNORECASE,
+            )
+            if company_match:
+                company_name = clean_title(company_match.group(1))
+                if company_name:
+                    title = re.sub(
+                        rf"\s+{re.escape(company_name)}(?=\s|$)",
+                        "",
+                        title,
+                        flags=re.IGNORECASE,
+                    ).strip()
+
             seen.add(url)
             result.append((title, url, card_text))
 
