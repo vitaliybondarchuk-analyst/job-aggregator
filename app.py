@@ -1,59 +1,28 @@
 import streamlit as st
 import pandas as pd
 
-from config import CORE_TERMS, SIDE_INCOME_TERMS
+from config import CORE_TERMS
 from pipeline import run
 
 
-# ============================================================
-# PAGE CONFIG
-# ============================================================
-
 st.set_page_config(
-    page_title="Personal Job Aggregator",
+    page_title="Personal Power BI Job Aggregator",
     layout="wide",
 )
 
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.title("Personal Job Aggregator")
+st.title("Personal Power BI Job Aggregator")
 
 st.caption(
-    "Remote vacancies: Djinni · DOU · robota.ua"
+    "Remote Power BI vacancies: Djinni · DOU · robota.ua"
 )
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
 
 with st.sidebar:
 
     st.header("Search")
 
-    mode = st.multiselect(
-        "Tracks",
-        [
-            "Core/Adjacent BI & Data",
-            "Side Income",
-        ],
-        default=[
-            "Core/Adjacent BI & Data",
-            "Side Income",
-        ],
-    )
-
-    extra = st.text_area(
-        "Additional search terms",
-        "",
-        placeholder=(
-            "Example:\n"
-            "Power BI Developer\n"
-            "Technical Writer"
-        ),
+    st.info(
+        "Search is restricted to vacancies explicitly related "
+        "to Power BI."
     )
 
     max_rows = st.slider(
@@ -64,195 +33,68 @@ with st.sidebar:
     )
 
     run_search = st.button(
-        "Search vacancies",
+        "Search Power BI vacancies",
         type="primary",
         use_container_width=True,
     )
 
 
-# ============================================================
-# SEARCH
-# ============================================================
-
 if run_search:
 
-    terms = []
-
-    if (
-        "Core/Adjacent BI & Data"
-        in mode
+    with st.spinner(
+        "Collecting Power BI vacancies…"
     ):
-        terms += CORE_TERMS
 
-    if (
-        "Side Income"
-        in mode
-    ):
-        terms += SIDE_INCOME_TERMS
+        try:
 
-    # Additional user terms.
-    terms += [
-        x.strip()
-        for x in extra.splitlines()
-        if x.strip()
-    ]
+            vacancies = run(CORE_TERMS)
 
-    # Remove duplicate search terms.
-    terms = list(
-        dict.fromkeys(
-            terms
-        )
-    )
+            st.session_state["vacancies"] = vacancies
+            st.session_state["search_error"] = ""
 
-    if not terms:
+        except Exception as exc:
 
-        st.warning(
-            "Choose at least one track "
-            "or enter additional search terms."
-        )
-
-    else:
-
-        with st.spinner(
-            "Collecting vacancies…"
-        ):
-
-            try:
-
-                vacancies = run(
-                    terms
-                )
-
-                st.session_state[
-                    "vacancies"
-                ] = vacancies
-
-                st.session_state[
-                    "search_error"
-                ] = ""
-
-            except Exception as exc:
-
-                st.session_state[
-                    "vacancies"
-                ] = []
-
-                st.session_state[
-                    "search_error"
-                ] = (
-                    f"{type(exc).__name__}: "
-                    f"{exc}"
-                )
+            st.session_state["vacancies"] = []
+            st.session_state["search_error"] = (
+                f"{type(exc).__name__}: {exc}"
+            )
 
 
-# ============================================================
-# RESULTS
-# ============================================================
+vacancies = st.session_state.get("vacancies", [])
+search_error = st.session_state.get("search_error", "")
 
-vacancies = st.session_state.get(
-    "vacancies",
-    [],
-)
-
-search_error = st.session_state.get(
-    "search_error",
-    "",
-)
-
-
-# ============================================================
-# ERROR
-# ============================================================
 
 if search_error:
 
-    st.error(
-        "Search failed"
-    )
+    st.error("Search failed")
+    st.code(search_error)
 
-    st.code(
-        search_error
-    )
-
-
-# ============================================================
-# SUMMARY
-# ============================================================
 
 if vacancies:
 
-    core_count = sum(
-        1
-        for vacancy in vacancies
-        if vacancy.category
-        == "Core/Adjacent BI & Data"
+    st.metric(
+        "Power BI vacancies",
+        len(vacancies),
     )
 
-    side_count = sum(
-        1
-        for vacancy in vacancies
-        if vacancy.category
-        == "Side Income"
-    )
-
-    col1, col2, col3 = st.columns(
-        3
-    )
-
-    with col1:
-        st.metric(
-            "Relevant vacancies",
-            len(vacancies),
-        )
-
-    with col2:
-        st.metric(
-            "Core / BI & Data",
-            core_count,
-        )
-
-    with col3:
-        st.metric(
-            "Side Income",
-            side_count,
-        )
-
-
-# ============================================================
-# TABLE
-# ============================================================
 
 if vacancies:
 
     rows = []
 
-    for vacancy in vacancies[
-        :max_rows
-    ]:
+    for vacancy in vacancies[:max_rows]:
 
-        description = (
-            vacancy.description
-            or ""
-        )
+        description = vacancy.description or ""
 
         if len(description) > 300:
-
-            description = (
-                description[:300]
-                + "…"
-            )
+            description = description[:300] + "…"
 
         rows.append(
             {
-                "Category": vacancy.category,
-                "Score": round(
-                    vacancy.score or 0
-                ),
+                "Score": round(vacancy.score or 0),
                 "Title": vacancy.title,
                 "Company": vacancy.company,
-                "Employment": (
-                    vacancy.employment_type
-                ),
+                "Employment": vacancy.employment_type,
                 "Remote": vacancy.remote,
                 "Salary": vacancy.salary,
                 "Source": vacancy.source,
@@ -261,9 +103,7 @@ if vacancies:
             }
         )
 
-    df = pd.DataFrame(
-        rows
-    )
+    df = pd.DataFrame(rows)
 
     st.dataframe(
         df,
@@ -284,14 +124,8 @@ if vacancies:
         },
     )
 
-
-# ============================================================
-# EMPTY STATE
-# ============================================================
-
 elif not search_error:
 
     st.info(
-        "Choose tracks and press "
-        "Search vacancies."
+        "Press Search Power BI vacancies to start."
     )
