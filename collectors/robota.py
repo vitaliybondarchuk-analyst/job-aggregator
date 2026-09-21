@@ -523,7 +523,7 @@ def collect_from_jina(
         stats["jina_urls"] = len(all_candidates)
         stats["jina_candidates"] = len(power_bi_candidates)
         stats["jina_sample_titles"] = [
-            title for title, _ in all_candidates[:20]
+            title for title, _, _ in all_candidates[:20]
         ]
 
     for card_title, url, card_text in power_bi_candidates[:100]:
