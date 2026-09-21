@@ -774,11 +774,29 @@ class RobotaCollector(
                             title = ""
 
                             try:
-                                title = clean_title(
-                                    anchor.inner_text(
-                                        timeout=2000
-                                    )
+                                raw_anchor_text = anchor.inner_text(
+                                    timeout=2000
                                 )
+                                # Robota's result link can wrap the entire
+                                # vacancy card. Extract the line that looks
+                                # like the actual vacancy title instead of
+                                # using the whole card as title.
+                                lines = [
+                                    normalize_whitespace(line)
+                                    for line in raw_anchor_text.splitlines()
+                                    if normalize_whitespace(line)
+                                ]
+                                power_bi_lines = [
+                                    line for line in lines
+                                    if "power bi" in line.lower()
+                                    or "powerbi" in line.lower()
+                                ]
+                                if power_bi_lines:
+                                    title = clean_title(
+                                        power_bi_lines[0]
+                                    )
+                                elif lines:
+                                    title = clean_title(lines[0])
                             except Exception:
                                 pass
 
