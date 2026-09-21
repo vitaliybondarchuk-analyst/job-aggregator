@@ -521,11 +521,41 @@ def collect_from_jina(
             continue
 
         detail_lower = detail.lower()
-        if not any(marker in detail_lower for marker in REMOTE_LABELS):
+        remote_markers_found = [
+            marker for marker in REMOTE_LABELS
+            if marker in detail_lower
+        ]
+        hybrid_markers_found = [
+            marker for marker in (
+                "гібридна", "hybrid", "on-site", "onsite", "в офісі", "в офисе",
+            )
+            if marker in detail_lower
+        ]
+
+        if stats is not None:
+            stats.setdefault("jina_candidate_checks", []).append({
+                "card_title": card_title,
+                "detail_title": detail_title,
+                "final_title": title,
+                "remote_markers": remote_markers_found,
+                "hybrid_markers": hybrid_markers_found,
+            })
+
+        if not remote_markers_found:
+            if stats is not None:
+                stats.setdefault("jina_rejection_reasons", []).append({
+                    "title": title,
+                    "reason": "no_remote_marker",
+                })
             continue
-        if any(marker in detail_lower for marker in (
-            "гібридна", "hybrid", "on-site", "onsite", "в офісі", "в офисе",
-        )):
+
+        if hybrid_markers_found:
+            if stats is not None:
+                stats.setdefault("jina_rejection_reasons", []).append({
+                    "title": title,
+                    "reason": "hybrid_or_on_site_marker",
+                    "markers": hybrid_markers_found,
+                })
             continue
 
         company = ""
