@@ -1,6 +1,5 @@
 from config import (
     CORE_TERMS,
-    SIDE_INCOME_TERMS,
     EXCLUDE_TERMS,
     SOURCES,
 )
@@ -14,10 +13,6 @@ from collectors import (
 from dedupe import dedupe
 from scoring import score
 
-
-# ============================================================
-# NORMALIZATION
-# ============================================================
 
 def normalize(text: str) -> str:
     """
@@ -53,12 +48,35 @@ def vacancy_text(vacancy) -> str:
 
 
 # ============================================================
-# HARD EXCLUSIONS
+# STRICT POWER BI GATE
 # ============================================================
 
-# ------------------------------------------------------------
-# Junior / beginner / no experience
-# ------------------------------------------------------------
+POWER_BI_TERMS = (
+    "power bi",
+    "powerbi",
+)
+
+
+def is_power_bi_vacancy(vacancy) -> bool:
+    """
+    A vacancy is accepted only when Power BI is explicitly
+    present in its title.
+
+    This intentionally excludes generic BI/Data/Analytics
+    vacancies that merely mention Power BI in the description.
+    """
+
+    title = normalize(vacancy.title)
+
+    return any(
+        term in title
+        for term in POWER_BI_TERMS
+    )
+
+
+# ============================================================
+# HARD EXCLUSIONS
+# ============================================================
 
 LEVEL_EXCLUDE = (
     "junior",
@@ -71,18 +89,11 @@ LEVEL_EXCLUDE = (
     "без досвіду",
     "без опыта",
     "початківець",
-    "початківець",
     "стажер",
     "стажування",
 )
 
-
-# ------------------------------------------------------------
-# Sales / direct management / lead generation
-# ------------------------------------------------------------
-
 SALES_EXCLUDE = (
-    "direct manager",
     "direct manager",
     "sales manager",
     "sales representative",
@@ -97,7 +108,6 @@ SALES_EXCLUDE = (
     "lead generator",
     "chat manager",
     "chat administrator",
-    "chat administrator",
     "менеджер з продажу",
     "менеджер з продажів",
     "менеджер по продажам",
@@ -108,11 +118,6 @@ SALES_EXCLUDE = (
     "оператор чату",
     "адміністратор чату",
 )
-
-
-# ------------------------------------------------------------
-# SMM / social media
-# ------------------------------------------------------------
 
 SMM_EXCLUDE = (
     "smm",
@@ -130,11 +135,6 @@ SMM_EXCLUDE = (
     "менеджер соцмереж",
     "соціальні мережі",
 )
-
-
-# ------------------------------------------------------------
-# Video / Motion / Graphic / UI / UX design
-# ------------------------------------------------------------
 
 DESIGN_EXCLUDE = (
     "video editor",
@@ -167,11 +167,6 @@ DESIGN_EXCLUDE = (
     "дизайнер ux",
 )
 
-
-# ------------------------------------------------------------
-# Content-production roles that are NOT writing/editing
-# ------------------------------------------------------------
-
 CONTENT_PRODUCTION_EXCLUDE = (
     "scriptwriter",
     "script writer",
@@ -192,11 +187,6 @@ CONTENT_PRODUCTION_EXCLUDE = (
     "сценарист",
 )
 
-
-# ------------------------------------------------------------
-# Marketing roles that are not analytics
-# ------------------------------------------------------------
-
 MARKETING_EXCLUDE = (
     "marketing manager",
     "marketing specialist",
@@ -210,11 +200,6 @@ MARKETING_EXCLUDE = (
     "email marketing manager",
     "crm manager",
 )
-
-
-# ------------------------------------------------------------
-# Physical / office-only work
-# ------------------------------------------------------------
 
 NON_REMOTE_EXCLUDE = (
     "office only",
@@ -232,26 +217,8 @@ NON_REMOTE_EXCLUDE = (
 )
 
 
-# ============================================================
-# ROLE-SPECIFIC EXCLUSIONS
-# ============================================================
-
-def has_excluded_level(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
-
-    description = normalize(
-        vacancy.description
-    )
-
-    # Level should primarily be checked in title.
-    # This prevents a description such as
-    # "you will work with junior analysts"
-    # from incorrectly excluding a senior vacancy.
+def has_excluded_level(vacancy) -> bool:
+    title = normalize(vacancy.title)
 
     return any(
         term in title
@@ -259,13 +226,8 @@ def has_excluded_level(
     )
 
 
-def has_excluded_sales_role(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
+def has_excluded_sales_role(vacancy) -> bool:
+    title = normalize(vacancy.title)
 
     return any(
         term in title
@@ -273,13 +235,8 @@ def has_excluded_sales_role(
     )
 
 
-def has_excluded_smm_role(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
+def has_excluded_smm_role(vacancy) -> bool:
+    title = normalize(vacancy.title)
 
     return any(
         term in title
@@ -287,13 +244,8 @@ def has_excluded_smm_role(
     )
 
 
-def has_excluded_design_role(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
+def has_excluded_design_role(vacancy) -> bool:
+    title = normalize(vacancy.title)
 
     return any(
         term in title
@@ -301,13 +253,8 @@ def has_excluded_design_role(
     )
 
 
-def has_excluded_content_production_role(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
+def has_excluded_content_production_role(vacancy) -> bool:
+    title = normalize(vacancy.title)
 
     return any(
         term in title
@@ -315,41 +262,8 @@ def has_excluded_content_production_role(
     )
 
 
-def has_excluded_marketing_role(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # Do not exclude analytical marketing roles:
-    #
-    # Marketing Analyst
-    # Marketing Data Analyst
-    # Senior Marketing Data Analyst
-    # Product Growth Analyst
-    #
-    # These belong to Core/Adjacent BI & Data.
-    # --------------------------------------------------------
-
-    analytical_markers = (
-        "marketing analyst",
-        "marketing data analyst",
-        "marketing analytics",
-        "marketing data",
-        "growth analyst",
-        "product growth analyst",
-    )
-
-    if any(
-        marker in title
-        for marker in analytical_markers
-    ):
-        return False
+def has_excluded_marketing_role(vacancy) -> bool:
+    title = normalize(vacancy.title)
 
     return any(
         term in title
@@ -357,13 +271,8 @@ def has_excluded_marketing_role(
     )
 
 
-def has_non_remote_marker(
-    vacancy,
-) -> bool:
-
-    text = vacancy_text(
-        vacancy
-    )
+def has_non_remote_marker(vacancy) -> bool:
+    text = vacancy_text(vacancy)
 
     return any(
         term in text
@@ -371,55 +280,35 @@ def has_non_remote_marker(
     )
 
 
-def hard_excluded(
-    vacancy,
-) -> bool:
+def hard_excluded(vacancy) -> bool:
     """
     Hard exclusion layer.
 
-    If any of these conditions is true, the vacancy
-    must not reach scoring or the final result.
+    Any excluded vacancy is removed before scoring.
     """
 
-    if has_excluded_level(
-        vacancy
-    ):
+    if has_excluded_level(vacancy):
         return True
 
-    if has_excluded_sales_role(
-        vacancy
-    ):
+    if has_excluded_sales_role(vacancy):
         return True
 
-    if has_excluded_smm_role(
-        vacancy
-    ):
+    if has_excluded_smm_role(vacancy):
         return True
 
-    if has_excluded_design_role(
-        vacancy
-    ):
+    if has_excluded_design_role(vacancy):
         return True
 
-    if has_excluded_content_production_role(
-        vacancy
-    ):
+    if has_excluded_content_production_role(vacancy):
         return True
 
-    if has_excluded_marketing_role(
-        vacancy
-    ):
+    if has_excluded_marketing_role(vacancy):
         return True
 
-    if has_non_remote_marker(
-        vacancy
-    ):
+    if has_non_remote_marker(vacancy):
         return True
 
-    # Existing global exclusions from config.py.
-    text = vacancy_text(
-        vacancy
-    )
+    text = vacancy_text(vacancy)
 
     if any(
         normalize(term) in text
@@ -430,337 +319,29 @@ def hard_excluded(
     return False
 
 
-# ============================================================
-# CORE ROLE SIGNALS
-# ============================================================
-
-CORE_STRONG_TERMS = (
-    "power bi",
-    "business intelligence",
-    "bi analyst",
-    "bi developer",
-    "bi engineer",
-    "power bi developer",
-    "power bi analyst",
-    "power bi engineer",
-    "data analyst",
-    "data analytics",
-    "data visualization",
-    "reporting analyst",
-    "report developer",
-    "reporting developer",
-    "analytics specialist",
-    "business intelligence analyst",
-    "business intelligence developer",
-    "business intelligence engineer",
-)
-
-
-CORE_ADJACENT_TERMS = (
-    "business analyst",
-    "technical business analyst",
-    "system analyst",
-    "systems analyst",
-    "product analyst",
-    "product data analyst",
-    "data reporting",
-    "reporting",
-    "sql analyst",
-    "data specialist",
-    "analytics",
-)
-
-
-# ============================================================
-# SIDE INCOME SIGNALS
-# ============================================================
-
-SIDE_WRITING_TERMS = (
-    "content writer",
-    "seo content writer",
-    "seo writer",
-    "seo copywriter",
-    "article writer",
-    "technical writer",
-    "technical content writer",
-    "technical copywriter",
-    "copywriter",
-    "content editor",
-    "proofreader",
-    "research writer",
-    "content specialist",
-    "editor",
-)
-
-
-# ============================================================
-# TECHNICAL SUPPORT / NON-ANALYTICAL EXCLUSION
-# ============================================================
-
-TECHNICAL_SUPPORT_EXCLUDE = (
-    "technical support",
-    "support engineer",
-    "help desk",
-    "service desk",
-    "customer support",
-    "it support",
-    "support specialist",
-    "технічна підтримка",
-    "служба підтримки",
-)
-
-
-# ============================================================
-# BUSINESS ANALYST VALIDATION
-# ============================================================
-
-def valid_business_analyst(
-    vacancy,
-) -> bool:
-    """
-    Business Analyst is allowed when it is actually an
-    analytical / IT / business-analysis role.
-
-    Sales-oriented Business Development / Account roles
-    are already removed by hard_excluded().
-    """
-
-    title = normalize(
-        vacancy.title
-    )
-
-    description = normalize(
-        vacancy.description
-    )
-
-    if "business analyst" not in title:
-        return True
-
-    analytical_signals = (
-        "requirements",
-        "requirements analysis",
-        "business requirements",
-        "functional requirements",
-        "process analysis",
-        "business process",
-        "process modeling",
-        "sql",
-        "power bi",
-        "data",
-        "analytics",
-        "reporting",
-        "erp",
-        "crm",
-        "it",
-        "system analysis",
-        "systems analysis",
-        "stakeholder",
-        "documentation",
-        "technical specification",
-        "technical requirements",
-        "user stories",
-        "acceptance criteria",
-        "бізнес процес",
-        "аналіз вимог",
-        "вимоги",
-        "процеси",
-        "sql",
-        "дані",
-        "аналітика",
-        "erp",
-        "crm",
-    )
-
-    return any(
-        signal in description
-        for signal in analytical_signals
-    )
-
-
-# ============================================================
-# SIDE INCOME VALIDATION
-# ============================================================
-
-def valid_side_income(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
-
-    description = normalize(
-        vacancy.description
-    )
-
-    # --------------------------------------------------------
-    # Writing roles are valid.
-    # --------------------------------------------------------
-
-    if any(
-        term in title
-        for term in SIDE_WRITING_TERMS
-    ):
-        return True
-
-    # --------------------------------------------------------
-    # Technical Writer is especially relevant.
-    # --------------------------------------------------------
-
-    if (
-        "technical writer" in title
-        or "technical content writer" in title
-    ):
-        return True
-
-    # --------------------------------------------------------
-    # Content/editor roles.
-    # --------------------------------------------------------
-
-    if (
-        "editor" in title
-        or "proofreader" in title
-    ):
-        return True
-
-    return False
-
-
-# ============================================================
-# CORE VALIDATION
-# ============================================================
-
-def valid_core(
-    vacancy,
-) -> bool:
-
-    title = normalize(
-        vacancy.title
-    )
-
-    description = normalize(
-        vacancy.description
-    )
-
-    combined = (
-        f"{title} {description}"
-    )
-
-    # --------------------------------------------------------
-    # Strong Core terms.
-    # --------------------------------------------------------
-
-    if any(
-        term in combined
-        for term in CORE_STRONG_TERMS
-    ):
-        return True
-
-    # --------------------------------------------------------
-    # Adjacent analytical roles.
-    # --------------------------------------------------------
-
-    if any(
-        term in combined
-        for term in CORE_ADJACENT_TERMS
-    ):
-
-        # Technical support should not become Data/BI.
-        if any(
-            term in title
-            for term in TECHNICAL_SUPPORT_EXCLUDE
-        ):
-            return False
-
-        return True
-
-    # --------------------------------------------------------
-    # Business Analyst.
-    # --------------------------------------------------------
-
-    if "business analyst" in title:
-        return valid_business_analyst(
-            vacancy
-        )
-
-    return False
-
-
-# ============================================================
-# RELEVANCE
-# ============================================================
-
-def relevant(
-    vacancy,
-) -> bool:
+def relevant(vacancy) -> bool:
     """
     Final relevance gate.
 
-    A vacancy must belong either to:
-    - Core / Adjacent BI & Data
-    - Side Income writing/editorial
+    ONLY explicit Power BI vacancies are allowed.
     """
 
-    if hard_excluded(
-        vacancy
-    ):
-        return False
-
-    core = valid_core(
-        vacancy
+    return (
+        is_power_bi_vacancy(vacancy)
+        and not hard_excluded(vacancy)
     )
 
-    side = valid_side_income(
-        vacancy
-    )
 
-    # --------------------------------------------------------
-    # Core takes priority for mixed roles.
-    #
-    # Example:
-    # Business Analyst / Technical Writer
-    #
-    # This is an analytical/IT role, therefore Core.
-    # --------------------------------------------------------
-
-    if core:
-        return True
-
-    if side:
-        return True
-
-    return False
-
-
-# ============================================================
-# CATEGORY
-# ============================================================
-
-def assign_category(
-    vacancy,
-) -> str:
+def assign_category(vacancy) -> str:
     """
-    Assign final category.
-
-    Core takes priority over Side Income for hybrid roles.
+    All accepted vacancies belong to the Power BI category.
     """
 
-    if valid_core(
-        vacancy
-    ):
-        return "Core/Adjacent BI & Data"
-
-    if valid_side_income(
-        vacancy
-    ):
-        return "Side Income"
+    if is_power_bi_vacancy(vacancy):
+        return "Power BI"
 
     return "Other"
 
-
-# ============================================================
-# COLLECTORS
-# ============================================================
 
 def build_collectors():
 
@@ -775,10 +356,8 @@ def build_collectors():
 
     for source in SOURCES:
 
-        collector_class = (
-            collector_map.get(
-                source
-            )
+        collector_class = collector_map.get(
+            source
         )
 
         if collector_class:
@@ -789,49 +368,23 @@ def build_collectors():
     return collectors
 
 
-# ============================================================
-# PIPELINE
-# ============================================================
-
-def run(
-    terms=None,
-):
+def run(terms=None):
     """
-    Full vacancy aggregation pipeline.
+    Full Power BI vacancy aggregation pipeline.
 
     Steps:
-
-    1. Collect from sources.
+    1. Collect from sources using Power BI search.
     2. Remote-only filtering.
-    3. Hard exclusions.
-    4. Relevance filtering.
+    3. Strict Power BI title gate.
+    4. Hard exclusions.
     5. Deduplication.
     6. Category assignment.
     7. Scoring.
-    8. Final validation.
+    8. Final safety validation.
     """
 
-    # --------------------------------------------------------
-    # Search terms
-    # --------------------------------------------------------
-
-    if terms is None:
-
-        terms = (
-            CORE_TERMS
-            + SIDE_INCOME_TERMS
-        )
-
-    # Remove duplicate search terms.
-    terms = list(
-        dict.fromkeys(
-            terms
-        )
-    )
-
-    # --------------------------------------------------------
-    # Collection
-    # --------------------------------------------------------
+    # Search is deliberately fixed to Power BI.
+    terms = ["power bi"]
 
     vacancies = []
 
@@ -839,10 +392,8 @@ def run(
 
         try:
 
-            collected = (
-                collector.collect(
-                    terms
-                )
+            collected = collector.collect(
+                terms
             )
 
             vacancies.extend(
@@ -853,136 +404,57 @@ def run(
             # One broken source must not kill the pipeline.
             continue
 
-    # --------------------------------------------------------
-    # Remote-only filter
-    # --------------------------------------------------------
-
     vacancies = [
         vacancy
         for vacancy in vacancies
         if vacancy.remote
     ]
 
-    # --------------------------------------------------------
-    # Hard exclusions BEFORE scoring.
-    # --------------------------------------------------------
+    vacancies = [
+        vacancy
+        for vacancy in vacancies
+        if is_power_bi_vacancy(vacancy)
+    ]
 
     vacancies = [
         vacancy
         for vacancy in vacancies
-        if not hard_excluded(
-            vacancy
-        )
+        if not hard_excluded(vacancy)
     ]
-
-    # --------------------------------------------------------
-    # Relevance filter.
-    # --------------------------------------------------------
 
     vacancies = [
         vacancy
         for vacancy in vacancies
-        if relevant(
-            vacancy
-        )
+        if relevant(vacancy)
     ]
 
-    # --------------------------------------------------------
-    # Deduplication.
-    # --------------------------------------------------------
-
-    vacancies = dedupe(
-        vacancies
-    )
-
-    # --------------------------------------------------------
-    # Category.
-    # --------------------------------------------------------
+    vacancies = dedupe(vacancies)
 
     for vacancy in vacancies:
-
-        vacancy.category = (
-            assign_category(
-                vacancy
-            )
-        )
-
-    # --------------------------------------------------------
-    # Scoring.
-    # --------------------------------------------------------
+        vacancy.category = assign_category(vacancy)
 
     scored = []
 
     for vacancy in vacancies:
 
         try:
-
-            scored.append(
-                score(
-                    vacancy
-                )
-            )
-
+            scored.append(score(vacancy))
         except Exception:
-
-            scored.append(
-                vacancy
-            )
+            scored.append(vacancy)
 
     vacancies = scored
 
-    # --------------------------------------------------------
-    # Final category assignment.
-    #
-    # scoring.py may modify category, so restore our
-    # business-rule category.
-    # --------------------------------------------------------
-
-    for vacancy in vacancies:
-
-        vacancy.category = (
-            assign_category(
-                vacancy
-            )
-        )
-
-    # --------------------------------------------------------
-    # Final safety filter.
-    #
-    # This guarantees that an unwanted vacancy cannot
-    # re-enter the result because of scoring.
-    # --------------------------------------------------------
-
+    # Final safety gate after scoring.
     vacancies = [
         vacancy
         for vacancy in vacancies
         if vacancy.remote
-        and not hard_excluded(
-            vacancy
-        )
-        and relevant(
-            vacancy
-        )
+        and is_power_bi_vacancy(vacancy)
+        and not hard_excluded(vacancy)
     ]
-
-    # --------------------------------------------------------
-    # Sort
-    #
-    # Core first, then Side Income.
-    # Within category, score descending.
-    # --------------------------------------------------------
-
-    category_order = {
-        "Core/Adjacent BI & Data": 0,
-        "Side Income": 1,
-    }
 
     vacancies.sort(
         key=lambda vacancy: (
-            category_order.get(
-                vacancy.category,
-                99,
-            ),
             -(vacancy.score or 0),
             vacancy.title.lower(),
         )
