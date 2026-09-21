@@ -411,7 +411,7 @@ def extract_jina_detail_title(content: str) -> str:
 
 def parse_jina_vacancy_links(
     content: str,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
     """Extract Robota vacancy links, clean titles, and raw card text."""
     import re
 
@@ -442,7 +442,7 @@ def parse_jina_vacancy_links(
 
         if title:
             seen.add(url)
-            result.append((title, url))
+            result.append((title, url, card_text))
 
     return result
 
