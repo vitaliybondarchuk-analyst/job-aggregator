@@ -645,29 +645,28 @@ def enrich_robota_vacancy(
     )
 
     if not vacancy.employment_type:
-
-        vacancy.employment_type = (
-            infer_employment(
-                detail_text
-            )
+        vacancy.employment_type = infer_employment(
+            detail_text
         )
 
     # --------------------------------------------------------
     # Remote status
     # --------------------------------------------------------
+    #
+    # Do not treat every mention of "office" in the vacancy body
+    # as an office-only vacancy. Robota frequently includes office
+    # benefits/locations in remote vacancies.
+    #
+    # If the detail body explicitly advertises hybrid/office mode,
+    # reject it. Otherwise keep the card-level remote decision.
+    detail_mode_text = normalize_whitespace(
+        f"{vacancy.title} {vacancy.location}"
+    )
 
-    # IMPORTANT:
-    #
-    # We check the whole relevant detail text for office/
-    # hybrid markers before accepting remote.
-    #
-    if is_explicit_non_remote(
-        detail_text
-    ):
+    if is_explicit_non_remote(detail_mode_text):
         vacancy.remote = False
-
     elif any(
-        marker in detail_text.lower()
+        marker in detail_mode_text.lower()
         for marker in REMOTE_HINTS
     ):
         vacancy.remote = True
@@ -771,36 +770,31 @@ class RobotaCollector(
                             title = ""
 
                             try:
-
-                                anchor_title = (
-                                    anchor.get_attribute(
-                                        "title"
-                                    )
-                                    or ""
-                                )
-
                                 title = clean_title(
-                                    anchor_title
+                                    anchor.inner_text(
+                                        timeout=2000
+                                    )
                                 )
-
                             except Exception:
                                 pass
 
                             if not title:
-
                                 try:
-
-                                    aria = (
-                                        anchor.get_attribute(
-                                            "aria-label"
-                                        )
+                                    anchor_title = (
+                                        anchor.get_attribute("title")
                                         or ""
                                     )
+                                    title = clean_title(anchor_title)
+                                except Exception:
+                                    pass
 
-                                    title = clean_title(
-                                        aria
+                            if not title:
+                                try:
+                                    aria = (
+                                        anchor.get_attribute("aria-label")
+                                        or ""
                                     )
-
+                                    title = clean_title(aria)
                                 except Exception:
                                     pass
 
@@ -816,6 +810,8 @@ class RobotaCollector(
                                 )
                             )
 
+                            card_has_non_remote = is_explicit_non_remote(card_text)
+
                             candidates.append(
                                 Vacancy(
                                     title=title,
@@ -824,7 +820,7 @@ class RobotaCollector(
                                     source=self.source,
                                     description="",
                                     employment_type=employment,
-                                    remote=True,
+                                    remote=not card_has_non_remote,
                                     salary="",
                                     location="",
                                     posted="",
@@ -911,13 +907,10 @@ class RobotaCollector(
                 # Explicit office/hybrid vacancies are invalid.
                 combined = normalize_whitespace(
                     f"{vacancy.title} "
-                    f"{vacancy.description} "
                     f"{vacancy.location}"
                 ).lower()
 
-                if is_explicit_non_remote(
-                    combined
-                ):
+                if is_explicit_non_remote(combined):
                     continue
 
                 # Must remain remote.
