@@ -131,18 +131,45 @@ if vacancies:
     st.dataframe(
         df,
         use_container_width=True,
+        height=900,
+        row_height=68,
         hide_index=True,
         column_config={
             "Score": st.column_config.NumberColumn(
                 "Score",
                 format="%d",
             ),
+            "Title": st.column_config.TextColumn(
+                "Title",
+                width="large",
+            ),
+            "Company": st.column_config.TextColumn(
+                "Company",
+                width="medium",
+            ),
+            "Employment": st.column_config.TextColumn(
+                "Employment",
+                width="small",
+            ),
             "Remote": st.column_config.CheckboxColumn(
                 "Remote",
+            ),
+            "Salary": st.column_config.TextColumn(
+                "Salary",
+                width="medium",
+            ),
+            "Source": st.column_config.TextColumn(
+                "Source",
+                width="small",
+            ),
+            "Description": st.column_config.TextColumn(
+                "Description",
+                width="large",
             ),
             "Vacancy": st.column_config.LinkColumn(
                 "Vacancy",
                 display_text="Open vacancy",
+                width="small",
             ),
         },
     )
