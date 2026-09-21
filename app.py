@@ -25,13 +25,6 @@ with st.sidebar:
         "to Power BI."
     )
 
-    max_rows = st.slider(
-        "Results",
-        min_value=10,
-        max_value=200,
-        value=50,
-    )
-
     run_search = st.button(
         "Search Power BI vacancies",
         type="primary",
@@ -105,7 +98,7 @@ if vacancies:
 
     rows = []
 
-    for vacancy in vacancies[:max_rows]:
+    for vacancy in vacancies:
 
         description = vacancy.description or ""
 
