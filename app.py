@@ -128,51 +128,107 @@ if vacancies:
 
     df = pd.DataFrame(rows)
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        height=900,
-        row_height=68,
-        hide_index=True,
-        column_config={
-            "Score": st.column_config.NumberColumn(
-                "Score",
-                format="%d",
-            ),
-            "Title": st.column_config.TextColumn(
-                "Title",
-                width="large",
-            ),
-            "Company": st.column_config.TextColumn(
-                "Company",
-                width="medium",
-            ),
-            "Employment": st.column_config.TextColumn(
-                "Employment",
-                width="small",
-            ),
-            "Remote": st.column_config.CheckboxColumn(
-                "Remote",
-            ),
-            "Salary": st.column_config.TextColumn(
-                "Salary",
-                width="medium",
-            ),
-            "Source": st.column_config.TextColumn(
-                "Source",
-                width="small",
-            ),
-            "Description": st.column_config.TextColumn(
-                "Description",
-                width="large",
-            ),
-            "Vacancy": st.column_config.LinkColumn(
-                "Vacancy",
-                display_text="Open vacancy",
-                width="small",
-            ),
-        },
-    )
+    def esc(value):
+        return (
+            str(value or "")
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    table_rows = []
+
+    for row in rows:
+        remote = "✓" if row["Remote"] else "—"
+        table_rows.append(
+            f"""
+            <tr>
+                <td class="score">{esc(row["Score"])}</td>
+                <td class="title">{esc(row["Title"])}</td>
+                <td>{esc(row["Company"])}</td>
+                <td>{esc(row["Employment"])}</td>
+                <td class="remote">{remote}</td>
+                <td>{esc(row["Salary"])}</td>
+                <td>{esc(row["Source"])}</td>
+                <td class="description">{esc(row["Description"])}</td>
+                <td><a href="{esc(row["Vacancy"])}" target="_blank">Open vacancy</a></td>
+            </tr>
+            """
+        )
+
+    table_html = f"""
+    <style>
+        .vacancy-table-wrap {{
+            width: 100%;
+            max-height: 900px;
+            overflow: auto;
+            border: 1px solid rgba(128, 128, 128, 0.25);
+            border-radius: 8px;
+        }}
+        .vacancy-table {{
+            width: 100%;
+            min-width: 900px;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 14px;
+        }}
+        .vacancy-table th,
+        .vacancy-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+            vertical-align: top;
+            text-align: left;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.35;
+        }}
+        .vacancy-table th {{
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: var(--background-color);
+            font-weight: 600;
+        }}
+        .vacancy-table th:nth-child(1) {{ width: 6%; }}
+        .vacancy-table th:nth-child(2) {{ width: 20%; }}
+        .vacancy-table th:nth-child(3) {{ width: 11%; }}
+        .vacancy-table th:nth-child(4) {{ width: 9%; }}
+        .vacancy-table th:nth-child(5) {{ width: 6%; }}
+        .vacancy-table th:nth-child(6) {{ width: 10%; }}
+        .vacancy-table th:nth-child(7) {{ width: 8%; }}
+        .vacancy-table th:nth-child(8) {{ width: 24%; }}
+        .vacancy-table th:nth-child(9) {{ width: 6%; }}
+        .vacancy-table .score {{ font-weight: 700; }}
+        .vacancy-table .remote {{ text-align: center; }}
+        .vacancy-table a {{
+            white-space: nowrap;
+        }}
+    </style>
+    <div class="vacancy-table-wrap">
+        <table class="vacancy-table">
+            <thead>
+                <tr>
+                    <th>Score</th>
+                    <th>Title</th>
+                    <th>Company</th>
+                    <th>Employment</th>
+                    <th>Remote</th>
+                    <th>Salary</th>
+                    <th>Source</th>
+                    <th>Description</th>
+                    <th>Vacancy</th>
+                </tr>
+            </thead>
+            <tbody>
+                {"".join(table_rows)}
+            </tbody>
+        </table>
+    </div>
+    """
+
+    st.markdown(table_html, unsafe_allow_html=True)
 
 elif not search_error:
 
